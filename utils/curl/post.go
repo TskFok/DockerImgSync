@@ -4,12 +4,29 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/TskFok/DockerImgSync/app/global"
 	"io"
 	"net/http"
+	"net/url"
 )
 
-func Post(url string, body interface{}, header http.Header, responseBody any) int {
+func Post(host string, body interface{}, header http.Header, responseBody any) int {
 	client := &http.Client{}
+
+	if global.ProxyHost != "" {
+		proxyUrl, err := url.Parse(global.ProxyHost)
+		if err != nil {
+			panic(err)
+		}
+
+		transport := &http.Transport{
+			Proxy: http.ProxyURL(proxyUrl),
+		}
+
+		client = &http.Client{
+			Transport: transport,
+		}
+	}
 
 	b, e := json.Marshal(body)
 
@@ -19,7 +36,7 @@ func Post(url string, body interface{}, header http.Header, responseBody any) in
 
 	bReader := bytes.NewReader(b)
 
-	res, err := http.NewRequest("POST", url, bReader)
+	res, err := http.NewRequest("POST", host, bReader)
 
 	if err != nil {
 		fmt.Println("error")

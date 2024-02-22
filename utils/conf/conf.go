@@ -26,4 +26,5 @@ func InitConfig() {
 	global.DockerPassword = viper.Get("docker.password").(string)
 	global.GithubHost = viper.Get("github.host").(string)
 	global.GithubToken = viper.Get("github.token").(string)
+	global.ProxyHost = viper.Get("proxy.host").(string)
 }

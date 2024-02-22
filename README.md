@@ -8,6 +8,7 @@ fork一个项目做好前置准备
 配置文件
 填写docker账号密码
 填写github的token,host填写https://api.github.com/repos/****/hub-mirror/issues,****是用户名
+如果网络受限可以添加proxy
 
 使用方法
 go run bin/cli/main.go sync:task --namespace="linuxserver" --repository="jackett" --tag="latest" --from="lscr.io"

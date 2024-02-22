@@ -12,3 +12,4 @@ var DockerPassword string
 var DockerHost string
 var GithubHost string
 var GithubToken string
+var ProxyHost string

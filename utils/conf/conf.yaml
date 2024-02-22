@@ -8,3 +8,5 @@ docker:
 github:
   host: ""
   token: ""
+proxy:
+  host: ""

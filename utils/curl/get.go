@@ -3,13 +3,30 @@ package curl
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/TskFok/DockerImgSync/app/global"
 	"net/http"
+	"net/url"
 )
 
-func Get(url string, responseBody any, header http.Header) int {
+func Get(host string, responseBody any, header http.Header) int {
 	client := &http.Client{}
 
-	res, err := http.NewRequest("GET", url, nil)
+	if global.ProxyHost != "" {
+		proxyUrl, err := url.Parse(global.ProxyHost)
+		if err != nil {
+			panic(err)
+		}
+
+		transport := &http.Transport{
+			Proxy: http.ProxyURL(proxyUrl),
+		}
+
+		client = &http.Client{
+			Transport: transport,
+		}
+	}
+
+	res, err := http.NewRequest("GET", host, nil)
 
 	if err != nil {
 		fmt.Println("error")
