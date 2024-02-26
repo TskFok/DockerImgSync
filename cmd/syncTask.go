@@ -45,7 +45,7 @@ var syncTaskCmd = &cobra.Command{
 
 			//找到新更新
 			condition := make(map[string]any)
-			condition["repository"] = detail.Repository
+			condition["id"] = one.Id
 
 			update := make(map[string]any)
 			update["tag_status"] = detail.TagStatus
