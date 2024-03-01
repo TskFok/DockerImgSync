@@ -10,3 +10,7 @@ github:
   token: ""
 proxy:
   host: ""
+redis:
+  host: 127.0.0.1:6359
+  user: root
+  password: ""

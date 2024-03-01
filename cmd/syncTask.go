@@ -5,6 +5,7 @@ import (
 	"github.com/TskFok/DockerImgSync/app/model"
 	"github.com/TskFok/DockerImgSync/service/DockerApi"
 	"github.com/TskFok/DockerImgSync/service/GithubApi"
+	"github.com/TskFok/DockerImgSync/utils/cache"
 	"github.com/spf13/cobra"
 )
 
@@ -19,11 +20,18 @@ var syncTaskCmd = &cobra.Command{
 	Short: "同步docker images到阿里云镜像仓库",
 	Long:  `同步docker images到阿里云镜像仓库`,
 	Run: func(cmd *cobra.Command, args []string) {
-		token := DockerApi.Login()
+		token := ""
+		if cache.Has("docker_token") {
+			token = cache.Get("docker_token")
+		} else {
+			token = DockerApi.Login()
 
-		if token == "" {
-			fmt.Println("获取docker hub token失败")
-			return
+			if token == "" {
+				fmt.Println("获取docker hub token失败")
+				return
+			}
+
+			cache.Set("docker_token", token, 3600)
 		}
 
 		detail := DockerApi.Detail(namespace, repository, tag, token)

@@ -27,4 +27,7 @@ func InitConfig() {
 	global.GithubHost = viper.Get("github.host").(string)
 	global.GithubToken = viper.Get("github.token").(string)
 	global.ProxyHost = viper.Get("proxy.host").(string)
+	global.RedisUser = viper.Get("redis.user").(string)
+	global.RedisPassword = viper.Get("redis.password").(string)
+	global.RedisHost = viper.Get("redis.host").(string)
 }
