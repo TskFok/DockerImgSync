@@ -23,6 +23,10 @@ var syncTaskCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		token := getToken()
 
+		if token == "" {
+			return
+		}
+
 		if all == 1 {
 			dockerImage := model.NewDockerImage()
 
