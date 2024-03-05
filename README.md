@@ -11,7 +11,11 @@ fork一个项目做好前置准备
 如果网络受限可以添加proxy
 
 使用方法
+
+更新指定任务:
 go run bin/cli/main.go sync:task --namespace="linuxserver" --repository="jackett" --tag="latest" --from="lscr.io"
+更新已有的全部任务
+go run bin/cli/main.go sync:task --all=1
 ``````
 
 ``````

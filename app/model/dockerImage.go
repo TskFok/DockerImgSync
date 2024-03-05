@@ -36,6 +36,19 @@ func (*dockerImage) Find(repositoryId int32) (d *dockerImage) {
 	return d
 }
 
+func (*dockerImage) FindAll() (d []*dockerImage) {
+	condition := make(map[string]any)
+
+	db := global.DataBase.Where(condition).Find(&d)
+
+	if db.Error != nil {
+		fmt.Println(db.Error.Error())
+		return nil
+	}
+
+	return d
+}
+
 func (*dockerImage) Create(di *dockerImage) int32 {
 	db := global.DataBase.Create(di)
 

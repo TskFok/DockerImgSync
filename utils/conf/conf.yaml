@@ -1,5 +1,5 @@
 mysql:
-  dsn: root:123456@tcp(localhost:3306)/sync_task?charset=utf8mb4&parseTime=True&loc=Local
+  dsn: root:123456@tcp(localhost:3309)/sync_task?charset=utf8mb4&parseTime=True&loc=Local
   prefix: ""
 docker:
   host: "https://hub.docker.com"
@@ -11,6 +11,6 @@ github:
 proxy:
   host: ""
 redis:
-  host: 127.0.0.1:6359
+  host: 127.0.0.1:6379
   user: root
   password: ""
