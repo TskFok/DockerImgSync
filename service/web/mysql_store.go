@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/TskFok/DockerImgSync/app/model"
 	"github.com/TskFok/DockerImgSync/utils/crypto"
@@ -20,6 +21,7 @@ func NewMySQLStore(db *gorm.DB, key []byte) *MySQLStore {
 
 var _ CredentialStore = (*MySQLStore)(nil)
 var _ RegistryStore = (*MySQLStore)(nil)
+var _ TaskStore = (*MySQLStore)(nil)
 
 func (s *MySQLStore) table(name string) string {
 	return s.db.NamingStrategy.TableName(name)
@@ -175,4 +177,135 @@ func (s *MySQLStore) DeleteRegistry(ctx context.Context, id int32) error {
 		return err
 	}
 	return s.db.WithContext(ctx).Delete(&model.Registry{}, id).Error
+}
+
+func toWebTask(row model.SyncTask) SyncTask {
+	return SyncTask{
+		ID:                 row.ID,
+		Name:               row.Name,
+		SourceImage:        row.SourceImage,
+		SourceCredentialID: row.SourceCredentialID,
+		RegistryID:         row.RegistryID,
+		DestRepository:     row.DestRepository,
+		DestTag:            row.DestTag,
+		IntervalSeconds:    row.IntervalSeconds,
+		Enabled:            row.Enabled,
+		LastDigest:         row.LastDigest,
+		LastStatus:         row.LastStatus,
+		LastError:          row.LastError,
+		LastSyncedAt:       row.LastSyncedAt,
+		NextRunAt:          row.NextRunAt,
+	}
+}
+
+func (s *MySQLStore) ListTasks(ctx context.Context) ([]SyncTask, error) {
+	var rows []model.SyncTask
+	if err := s.db.WithContext(ctx).Order("id").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]SyncTask, len(rows))
+	for i, row := range rows {
+		out[i] = toWebTask(row)
+	}
+	return out, nil
+}
+
+func (s *MySQLStore) GetTask(ctx context.Context, id int32) (SyncTask, error) {
+	var row model.SyncTask
+	if err := s.db.WithContext(ctx).First(&row, id).Error; err != nil {
+		return SyncTask{}, err
+	}
+	return toWebTask(row), nil
+}
+
+// ListLogs 按 id 倒序返回，页面按该顺序展示，不再排序。
+func (s *MySQLStore) ListLogs(ctx context.Context, taskID int32) ([]SyncLog, error) {
+	var rows []model.SyncLog
+	if err := s.db.WithContext(ctx).Where("sync_task_id = ?", taskID).Order("id DESC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]SyncLog, len(rows))
+	for i, row := range rows {
+		out[i] = SyncLog{
+			Trigger:      row.Trigger,
+			Status:       row.Status,
+			SourceDigest: row.SourceDigest,
+			Message:      row.Message,
+			StartedAt:    row.StartedAt,
+			FinishedAt:   row.FinishedAt,
+		}
+	}
+	return out, nil
+}
+
+func (s *MySQLStore) CreateTask(ctx context.Context, task SyncTask, now time.Time) error {
+	if task.LastStatus == "" {
+		task.LastStatus = "idle"
+	}
+	row := model.SyncTask{
+		Name:               task.Name,
+		SourceImage:        task.SourceImage,
+		SourceCredentialID: task.SourceCredentialID,
+		RegistryID:         task.RegistryID,
+		DestRepository:     task.DestRepository,
+		DestTag:            task.DestTag,
+		IntervalSeconds:    task.IntervalSeconds,
+		Enabled:            task.Enabled,
+		LastDigest:         task.LastDigest,
+		LastStatus:         task.LastStatus,
+		LastError:          task.LastError,
+		LastSyncedAt:       task.LastSyncedAt,
+		NextRunAt:          task.NextRunAt,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	return s.db.WithContext(ctx).
+		Select("Name", "SourceImage", "SourceCredentialID", "RegistryID", "DestRepository", "DestTag", "IntervalSeconds", "Enabled", "LastDigest", "LastStatus", "LastError", "LastSyncedAt", "NextRunAt", "CreatedAt", "UpdatedAt").
+		Create(&row).Error
+}
+
+func (s *MySQLStore) UpdateTask(ctx context.Context, task SyncTask, now time.Time) error {
+	return s.db.WithContext(ctx).Model(&model.SyncTask{}).Where("id = ?", task.ID).Updates(map[string]interface{}{
+		"name":                 task.Name,
+		"source_image":         task.SourceImage,
+		"source_credential_id": nullInt32(task.SourceCredentialID),
+		"registry_id":          task.RegistryID,
+		"dest_repository":      task.DestRepository,
+		"dest_tag":             task.DestTag,
+		"interval_seconds":     task.IntervalSeconds,
+		"enabled":              task.Enabled,
+		"next_run_at":          nullTime(task.NextRunAt),
+		"updated_at":           now,
+	}).Error
+}
+
+func (s *MySQLStore) DeleteTask(ctx context.Context, id int32) error {
+	return s.db.WithContext(ctx).Delete(&model.SyncTask{}, id).Error
+}
+
+// SetEnabled 切换任务开关。重新启用且 interval_seconds > 0 时，把 next_run_at 设为 now，
+// 使下一次调度会检查（对照 spec：关闭后再启用）。间隔为 0 时不改 next_run_at。
+// 关闭只更新 enabled。web 测试用假存储断言 enabled，不连接数据库。
+func (s *MySQLStore) SetEnabled(ctx context.Context, id int32, enabled bool, now time.Time) error {
+	updates := map[string]interface{}{
+		"enabled": enabled,
+	}
+	if enabled {
+		updates["next_run_at"] = gorm.Expr("CASE WHEN interval_seconds > 0 THEN ? ELSE next_run_at END", now)
+	}
+	return s.db.WithContext(ctx).Model(&model.SyncTask{}).Where("id = ?", id).Updates(updates).Error
+}
+
+func nullTime(t *time.Time) interface{} {
+	if t == nil {
+		return nil
+	}
+	return *t
+}
+
+func nullInt32(v *int32) interface{} {
+	if v == nil {
+		return nil
+	}
+	return *v
 }

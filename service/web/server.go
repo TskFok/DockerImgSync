@@ -25,6 +25,8 @@ type CredentialStore interface {
 type Deps struct {
 	Store         CredentialStore
 	Registries    RegistryStore
+	Tasks         TaskStore
+	Syncer        Syncer
 	AdminUser     string
 	AdminPassword string
 	SessionSecret string
@@ -69,6 +71,15 @@ func NewRouter(deps Deps) http.Handler {
 		r.Get("/registries/{id}/edit", s.handleRegistryEdit)
 		r.Post("/registries/{id}/delete", s.handleRegistryDelete)
 		r.Post("/registries/{id}", s.handleRegistryUpdate)
+		r.Get("/tasks", s.handleTaskList)
+		r.Get("/tasks/new", s.handleTaskNew)
+		r.Post("/tasks", s.handleTaskCreate)
+		r.Get("/tasks/{id}", s.handleTaskDetail)
+		r.Get("/tasks/{id}/edit", s.handleTaskEdit)
+		r.Post("/tasks/{id}/delete", s.handleTaskDelete)
+		r.Post("/tasks/{id}/sync", s.handleTaskSync)
+		r.Post("/tasks/{id}/toggle", s.handleTaskToggle)
+		r.Post("/tasks/{id}", s.handleTaskUpdate)
 	})
 	return r
 }
@@ -207,4 +218,8 @@ type pageData struct {
 	Credential  Credential
 	Registries  []Registry
 	Registry    Registry
+	Tasks       []SyncTask
+	Task        SyncTask
+	Logs        []SyncLog
+	Message     string
 }

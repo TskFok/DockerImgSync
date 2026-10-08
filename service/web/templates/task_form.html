@@ -1,0 +1,39 @@
+{{define "task_form"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{if .IsEdit}}编辑同步任务{{else}}新建同步任务{{end}}</title>
+</head>
+<body>
+{{template "nav" .}}
+<h1>{{if .IsEdit}}编辑同步任务{{else}}新建同步任务{{end}}</h1>
+{{if .Error}}<p>{{.Error}}</p>{{end}}
+<form action="{{.Action}}" method="post">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label>名称 <input type="text" name="name" value="{{.Task.Name}}"></label>
+<label>源镜像 <input type="text" name="source_image" value="{{.Task.SourceImage}}"></label>
+<label>源登录信息
+<select name="source_credential_id">
+<option value="">匿名拉取</option>
+{{range .Credentials}}
+<option value="{{.ID}}" {{if eq .ID $.Task.SourceCredentialValue}}selected{{end}}>{{.Name}}</option>
+{{end}}
+</select>
+</label>
+<label>目标仓库
+<select name="registry_id">
+{{range .Registries}}
+<option value="{{.ID}}" {{if eq .ID $.Task.RegistryID}}selected{{end}}>{{.Name}}</option>
+{{end}}
+</select>
+</label>
+<label>目标仓库名 <input type="text" name="dest_repository" value="{{.Task.DestRepository}}" placeholder="与源相同"> <span>与源相同</span></label>
+<label>目标 Tag <input type="text" name="dest_tag" value="{{.Task.DestTag}}" placeholder="与源相同"> <span>与源相同</span></label>
+<label>检查间隔（秒） <input type="number" name="interval_seconds" value="{{.Task.IntervalSeconds}}"></label>
+<label>启用 <input type="checkbox" name="enabled" value="1" {{if .Task.Enabled}}checked{{end}}></label>
+<button type="submit">保存</button>
+</form>
+</body>
+</html>
+{{end}}

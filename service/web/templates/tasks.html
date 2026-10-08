@@ -1,0 +1,50 @@
+{{define "tasks"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>同步任务</title>
+</head>
+<body>
+{{template "nav" .}}
+<h1>同步任务</h1>
+{{if .Error}}<p>{{.Error}}</p>{{end}}
+<p><a href="/tasks/new">新建</a></p>
+<table>
+<thead>
+<tr><th>名称</th><th>源镜像</th><th>目标仓库名</th><th>目标 Tag</th><th>间隔（秒）</th><th>启用</th><th>状态</th><th>错误</th><th>操作</th></tr>
+</thead>
+<tbody>
+{{range .Tasks}}
+<tr>
+<td><a href="/tasks/{{.ID}}">{{.Name}}</a></td>
+<td>{{.SourceImage}}</td>
+<td>{{.DestRepositoryLabel}}</td>
+<td>{{.DestTagLabel}}</td>
+<td>{{.IntervalSeconds}}</td>
+<td>{{if .Enabled}}启用{{else}}关闭{{end}}</td>
+<td>{{.LastStatus}}</td>
+<td>{{if eq .LastStatus "failed"}}{{.LastError}}{{end}}</td>
+<td>
+<a href="/tasks/{{.ID}}/edit">编辑</a>
+<form action="/tasks/{{.ID}}/sync" method="post">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<button type="submit">立即同步</button>
+</form>
+<form action="/tasks/{{.ID}}/toggle" method="post">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="enabled" value="{{if .Enabled}}0{{else}}1{{end}}">
+<button type="submit">{{if .Enabled}}关闭{{else}}启用{{end}}</button>
+</form>
+<form action="/tasks/{{.ID}}/delete" method="post">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<button type="submit">删除</button>
+</form>
+</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</body>
+</html>
+{{end}}
