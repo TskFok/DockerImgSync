@@ -12,50 +12,57 @@ import (
 // tableNames 与 sql/schema.sql 中的建表顺序一致，先被引用的表在前。
 var tableNames = []string{"credential", "registry", "sync_task", "sync_log"}
 
-// EnsureTables 在缺少表时按 sql/schema.sql 创建，已有的表不会修改。
-// 返回本次缺失并已创建的表名（含前缀）。
-func EnsureTables(db *gorm.DB, prefix string) ([]string, error) {
-	return ensureTables(prefix, func(table string) (bool, error) {
-		var count int64
-		err := db.Raw(
-			"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?",
-			table,
-		).Scan(&count).Error
-		if err != nil {
-			return false, err
-		}
-		return count > 0, nil
-	}, func(stmt string) error {
-		return db.Exec(stmt).Error
+// SchemaResult 是本次启动新建和修改的表名，均含前缀。
+type SchemaResult struct {
+	Created []string
+	Altered []string
+}
+
+type schemaProbe struct {
+	load func(tables []string) (map[string]bool, map[string]liveTable, error)
+	exec func(stmt string) error
+}
+
+// EnsureTables 按 sql/schema.sql 创建缺失的表，并修改已有表中与脚本不一致的列、索引和外键。
+// 脚本里没有的列、索引和外键保留。
+func EnsureTables(db *gorm.DB, prefix string) (SchemaResult, error) {
+	return ensureTables(prefix, schemaProbe{
+		load: func(tables []string) (map[string]bool, map[string]liveTable, error) {
+			return nil, nil, fmt.Errorf("读取表结构失败: 尚未查询 information_schema")
+		},
+		exec: func(stmt string) error {
+			return db.Exec(stmt).Error
+		},
 	})
 }
 
-func ensureTables(prefix string, exists func(string) (bool, error), exec func(string) error) ([]string, error) {
-	var missing []string
-	for _, name := range tableNames {
-		table := prefix + name
-		ok, err := exists(table)
-		if err != nil {
-			return nil, fmt.Errorf("检查数据表 %s 失败: %w", table, err)
-		}
-		if !ok {
-			missing = append(missing, table)
-		}
+func ensureTables(prefix string, probe schemaProbe) (SchemaResult, error) {
+	if err := validatePrefix(prefix); err != nil {
+		return SchemaResult{}, err
 	}
-	if len(missing) == 0 {
-		return nil, nil
-	}
-
-	stmts, err := SchemaStatements(prefix)
+	tables, err := desiredTables(prefix)
 	if err != nil {
-		return nil, err
+		return SchemaResult{}, err
 	}
+	names := make([]string, len(tables))
+	for i, table := range tables {
+		names[i] = table.Name
+	}
+	exists, live, err := probe.load(names)
+	if err != nil {
+		return SchemaResult{}, err
+	}
+	stmts, created, altered := planStatements(tables, exists, live)
+	// 表数量固定为 4。跨表 DDL 不能并成一条语句，所以按已排好的顺序逐条执行。
 	for _, stmt := range stmts {
-		if err := exec(stmt); err != nil {
-			return nil, fmt.Errorf("建表失败: %w", err)
+		if err := probe.exec(stmt.SQL); err != nil {
+			if stmt.Create {
+				return SchemaResult{}, fmt.Errorf("建表失败: %s: %w", stmt.Table, err)
+			}
+			return SchemaResult{}, fmt.Errorf("修改表结构失败: %s: %w", stmt.Table, err)
 		}
 	}
-	return missing, nil
+	return SchemaResult{Created: created, Altered: altered}, nil
 }
 
 // SchemaStatements 把建表脚本转成可重复执行的语句，并给表名加上前缀。

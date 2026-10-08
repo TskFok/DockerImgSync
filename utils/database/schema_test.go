@@ -59,65 +59,157 @@ func TestSchemaStatementsRejectsUnsafePrefix(t *testing.T) {
 }
 
 func TestEnsureTablesSkipsWhenComplete(t *testing.T) {
+	tables, err := desiredTables("img_")
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	exists := map[string]bool{}
+	live := map[string]liveTable{}
+	for _, table := range tables {
+		exists[table.Name] = true
+		live[table.Name] = matchingLive(table)
+	}
 	called := false
-	created, err := ensureTables("img_", func(table string) (bool, error) {
-		return true, nil
-	}, func(stmt string) error {
-		called = true
-		return nil
+	result, err := ensureTables("img_", schemaProbe{
+		load: func(names []string) (map[string]bool, map[string]liveTable, error) {
+			if len(names) != 4 || names[0] != "img_credential" {
+				t.Fatalf("读取的表 = %v", names)
+			}
+			return exists, live, nil
+		},
+		exec: func(stmt string) error {
+			called = true
+			return nil
+		},
 	})
 	if err != nil {
-		t.Fatalf("表已齐全时不应失败: %v", err)
+		t.Fatalf("表已一致时不应失败: %v", err)
 	}
-	if len(created) != 0 {
-		t.Fatalf("表已齐全时不应建表，得到 %v", created)
-	}
-	if called {
-		t.Fatal("表已齐全时不应执行建表语句")
+	if len(result.Created) != 0 || len(result.Altered) != 0 || called {
+		t.Fatalf("结果 = %+v，执行了语句 = %v", result, called)
 	}
 }
 
-func TestEnsureTablesCreatesWhenAnyMissing(t *testing.T) {
+func TestEnsureTablesCreatesOnlyMissingTable(t *testing.T) {
+	tables, err := desiredTables("img_")
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	exists := map[string]bool{}
+	live := map[string]liveTable{}
+	for _, table := range tables {
+		exists[table.Name] = table.Name != "img_registry"
+		if exists[table.Name] {
+			live[table.Name] = matchingLive(table)
+		}
+	}
 	var executed []string
-	created, err := ensureTables("img_", func(table string) (bool, error) {
-		return table != "img_registry", nil
-	}, func(stmt string) error {
-		executed = append(executed, stmt)
-		return nil
+	result, err := ensureTables("img_", schemaProbe{
+		load: func(names []string) (map[string]bool, map[string]liveTable, error) {
+			return exists, live, nil
+		},
+		exec: func(stmt string) error {
+			executed = append(executed, stmt)
+			return nil
+		},
 	})
 	if err != nil {
-		t.Fatalf("缺表时建表失败: %v", err)
+		t.Fatalf("缺表时失败: %v", err)
 	}
-	if len(created) != 1 || created[0] != "img_registry" {
-		t.Fatalf("缺失表 = %v，期望 [img_registry]", created)
+	if len(result.Created) != 1 || result.Created[0] != "img_registry" || len(result.Altered) != 0 {
+		t.Fatalf("结果 = %+v", result)
 	}
-	if len(executed) != 4 {
-		t.Fatalf("应执行全部建表语句，实际 %d 条", len(executed))
+	if len(executed) != 1 || !strings.Contains(executed[0], "CREATE TABLE IF NOT EXISTS `img_registry`") {
+		t.Fatalf("应只创建 registry: %v", executed)
 	}
-	if !strings.Contains(executed[0], "`img_credential`") {
-		t.Fatal("应按外键依赖顺序先创建 credential")
-	}
-}
-
-func TestEnsureTablesReturnsCheckError(t *testing.T) {
-	_, err := ensureTables("", func(table string) (bool, error) {
-		return false, errors.New("db down")
-	}, func(stmt string) error {
-		t.Fatal("检查失败时不应建表")
-		return nil
-	})
-	if err == nil || !strings.Contains(err.Error(), "credential") {
-		t.Fatalf("错误 = %v，期望包含表名", err)
+	if !strings.Contains(executed[0], "REFERENCES `img_credential`") {
+		t.Fatalf("建表语句应带前缀外键: %s", executed[0])
 	}
 }
 
-func TestEnsureTablesReturnsExecError(t *testing.T) {
-	_, err := ensureTables("", func(table string) (bool, error) {
-		return false, nil
-	}, func(stmt string) error {
-		return errors.New("denied")
+func TestEnsureTablesReturnsReadErrorWithoutExec(t *testing.T) {
+	called := false
+	_, err := ensureTables("", schemaProbe{
+		load: func(names []string) (map[string]bool, map[string]liveTable, error) {
+			return nil, nil, errors.New("检查数据表失败: db down")
+		},
+		exec: func(stmt string) error {
+			called = true
+			return nil
+		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "建表失败") {
-		t.Fatalf("错误 = %v，期望建表失败", err)
+	if err == nil || !strings.Contains(err.Error(), "检查数据表失败") || called {
+		t.Fatalf("错误 = %v，已执行 = %v", err, called)
+	}
+}
+
+func TestEnsureTablesStopsAfterCreateError(t *testing.T) {
+	var executed []string
+	_, err := ensureTables("", schemaProbe{
+		load: func(names []string) (map[string]bool, map[string]liveTable, error) {
+			exists := map[string]bool{}
+			for _, name := range names {
+				exists[name] = false
+			}
+			return exists, map[string]liveTable{}, nil
+		},
+		exec: func(stmt string) error {
+			executed = append(executed, stmt)
+			return errors.New("denied")
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "建表失败:") || !strings.Contains(err.Error(), "credential") {
+		t.Fatalf("错误 = %v", err)
+	}
+	if len(executed) != 1 {
+		t.Fatalf("失败后不应继续执行，语句数 = %d", len(executed))
+	}
+}
+
+func TestEnsureTablesStopsAfterAlterError(t *testing.T) {
+	tables, err := desiredTables("")
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	exists := map[string]bool{}
+	live := map[string]liveTable{}
+	for _, table := range tables {
+		exists[table.Name] = true
+		live[table.Name] = matchingLive(table)
+	}
+	delete(live["credential"].Columns, "name")
+	delete(live["registry"].Columns, "namespace")
+	executed := 0
+	_, err = ensureTables("", schemaProbe{
+		load: func(names []string) (map[string]bool, map[string]liveTable, error) {
+			return exists, live, nil
+		},
+		exec: func(stmt string) error {
+			executed++
+			return errors.New("denied")
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "修改表结构失败:") || !strings.Contains(err.Error(), "credential") {
+		t.Fatalf("错误 = %v", err)
+	}
+	if executed != 1 {
+		t.Fatalf("失败后不应继续执行，语句数 = %d", executed)
+	}
+}
+
+func TestEnsureTablesRejectsPrefixBeforeLoad(t *testing.T) {
+	called := false
+	_, err := ensureTables("img-", schemaProbe{
+		load: func(names []string) (map[string]bool, map[string]liveTable, error) {
+			called = true
+			return nil, nil, nil
+		},
+		exec: func(stmt string) error {
+			called = true
+			return nil
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "MYSQL_PREFIX 只能包含字母、数字和下划线") || called {
+		t.Fatalf("错误 = %v，已查库 = %v", err, called)
 	}
 }
