@@ -1,0 +1,201 @@
+package web
+
+import (
+	"context"
+	"crypto/subtle"
+	"embed"
+	"html/template"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+)
+
+//go:embed templates/*.html
+var templateFS embed.FS
+
+type CredentialStore interface {
+	ListCredentials(ctx context.Context) ([]Credential, error)
+	GetCredential(ctx context.Context, id int32) (Credential, error)
+	CreateCredential(ctx context.Context, c Credential) error
+	UpdateCredential(ctx context.Context, c Credential) error
+	DeleteCredential(ctx context.Context, id int32) error
+}
+
+type Deps struct {
+	Store         CredentialStore
+	AdminUser     string
+	AdminPassword string
+	SessionSecret string
+}
+
+type server struct {
+	deps Deps
+	tmpl *template.Template
+}
+
+type ctxKey int
+
+const sessionCtxKey ctxKey = 1
+
+type sessionInfo struct {
+	User string
+	CSRF string
+}
+
+func NewRouter(deps Deps) http.Handler {
+	s := &server{
+		deps: deps,
+		tmpl: template.Must(template.ParseFS(templateFS, "templates/*.html")),
+	}
+	r := chi.NewRouter()
+	r.Get("/login", s.handleLoginGet)
+	r.Post("/login", s.handleLoginPost)
+
+	r.Group(func(r chi.Router) {
+		r.Use(s.requireLogin)
+		r.Use(s.requireCSRF)
+		r.Post("/logout", s.handleLogout)
+		r.Get("/credentials", s.handleCredentialList)
+		r.Get("/credentials/new", s.handleCredentialNew)
+		r.Post("/credentials", s.handleCredentialCreate)
+		r.Get("/credentials/{id}/edit", s.handleCredentialEdit)
+		r.Post("/credentials/{id}/delete", s.handleCredentialDelete)
+		r.Post("/credentials/{id}", s.handleCredentialUpdate)
+	})
+	return r
+}
+
+func (s *server) requireLogin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, csrf, err := s.readSession(r)
+		if err != nil || user != s.deps.AdminUser {
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		ctx := context.WithValue(r.Context(), sessionCtxKey, sessionInfo{User: user, CSRF: csrf})
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (s *server) requireCSRF(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "表单无效", http.StatusBadRequest)
+			return
+		}
+		info := sessionFromCtx(r.Context())
+		if !csrfOK(r.PostForm.Get("csrf"), info.CSRF) {
+			http.Error(w, "csrf 校验失败", http.StatusBadRequest)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *server) handleLoginGet(w http.ResponseWriter, r *http.Request) {
+	csrf, err := s.issueSession(w, "")
+	if err != nil {
+		http.Error(w, "无法签发会话", http.StatusInternalServerError)
+		return
+	}
+	s.render(w, "login", pageData{CSRF: csrf})
+}
+
+func (s *server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "表单无效", http.StatusBadRequest)
+		return
+	}
+	_, csrf, err := s.readSession(r)
+	if err != nil || !csrfOK(r.PostForm.Get("csrf"), csrf) {
+		http.Error(w, "csrf 校验失败", http.StatusBadRequest)
+		return
+	}
+	user := r.PostForm.Get("username")
+	pass := r.PostForm.Get("password")
+	if user != s.deps.AdminUser || !CheckPassword(pass, s.deps.AdminPassword) {
+		http.Error(w, "用户名或密码错误", http.StatusUnauthorized)
+		return
+	}
+	if _, err := s.issueSession(w, s.deps.AdminUser); err != nil {
+		http.Error(w, "无法签发会话", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/tasks", http.StatusFound)
+}
+
+func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+	http.Redirect(w, r, "/login", http.StatusFound)
+}
+
+func (s *server) readSession(r *http.Request) (user, csrf string, err error) {
+	c, err := r.Cookie("session")
+	if err != nil {
+		return "", "", err
+	}
+	return VerifySession(s.deps.SessionSecret, c.Value, time.Now())
+}
+
+func (s *server) issueSession(w http.ResponseWriter, user string) (string, error) {
+	csrf, err := NewCSRF()
+	if err != nil {
+		return "", err
+	}
+	exp := time.Now().Add(24 * time.Hour)
+	val, err := SignSession(s.deps.SessionSecret, user, csrf, exp)
+	if err != nil {
+		return "", err
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    val,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  exp,
+		MaxAge:   24 * 60 * 60,
+	})
+	return csrf, nil
+}
+
+func (s *server) render(w http.ResponseWriter, name string, data any) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.tmpl.ExecuteTemplate(w, name, data); err != nil {
+		http.Error(w, "模板错误", http.StatusInternalServerError)
+	}
+}
+
+func sessionFromCtx(ctx context.Context) sessionInfo {
+	info, _ := ctx.Value(sessionCtxKey).(sessionInfo)
+	return info
+}
+
+func csrfOK(got, want string) bool {
+	if want == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
+
+type pageData struct {
+	CSRF        string
+	Error       string
+	Title       string
+	Action      string
+	IsEdit      bool
+	Credentials []Credential
+	Credential  Credential
+}

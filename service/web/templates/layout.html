@@ -1,0 +1,11 @@
+{{define "nav"}}
+<nav>
+<a href="/credentials">登录信息</a>
+<a href="/registries">目标仓库</a>
+<a href="/tasks">同步任务</a>
+<form action="/logout" method="post">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button type="submit">退出</button>
+</form>
+</nav>
+{{end}}
