@@ -36,6 +36,8 @@ func TestReadmeHasOperatorInstructions(t *testing.T) {
 		"CREDENTIAL_KEY",
 		"openssl rand -base64 32",
 		"sql/schema.sql",
+		"已有表会按同一脚本补齐列、索引、外键",
+		"脚本里没有的列、索引、外键会保留",
 		"MYSQL_PREFIX",
 		"make build-cli-mac",
 		"./cli serve",

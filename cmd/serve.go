@@ -20,13 +20,16 @@ var serveCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		created, err := database.EnsureTables(global.DataBase, global.MysqlPrefix)
+		result, err := database.EnsureTables(global.DataBase, global.MysqlPrefix)
 		if err != nil {
 			fmt.Println(err.Error())
 			os.Exit(1)
 		}
-		if len(created) > 0 {
-			fmt.Printf("已创建数据表: %s\n", strings.Join(created, ", "))
+		if len(result.Created) > 0 {
+			fmt.Printf("已创建数据表: %s\n", strings.Join(result.Created, ", "))
+		}
+		if len(result.Altered) > 0 {
+			fmt.Printf("已修改数据表: %s\n", strings.Join(result.Altered, ", "))
 		}
 		engine := syncsvc.NewCrane()
 		syncStore := syncsvc.NewMySQLStore(global.DataBase, global.CredentialKey)
