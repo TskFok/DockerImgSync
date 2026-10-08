@@ -21,31 +21,34 @@ type Store interface {
 }
 
 type Scheduler struct {
-	store Store
-	eng   Engine
-	sem   chan struct{}
-	mu    gosync.Mutex
-	locks map[int32]*gosync.Mutex
+	store    Store
+	eng      Engine
+	sem      chan struct{}
+	mu       gosync.Mutex
+	inflight map[int32]struct{}
 }
 
 func NewScheduler(store Store, eng Engine) *Scheduler {
 	return &Scheduler{
-		store: store,
-		eng:   eng,
-		sem:   make(chan struct{}, 2),
-		locks: make(map[int32]*gosync.Mutex),
+		store:    store,
+		eng:      eng,
+		sem:      make(chan struct{}, 2),
+		inflight: make(map[int32]struct{}),
 	}
 }
 
-func (s *Scheduler) taskLock(id int32) *gosync.Mutex {
+func (s *Scheduler) claimLocked(id int32) bool {
+	if _, ok := s.inflight[id]; ok {
+		return false
+	}
+	s.inflight[id] = struct{}{}
+	return true
+}
+
+func (s *Scheduler) unclaim(id int32) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if m, ok := s.locks[id]; ok {
-		return m
-	}
-	m := &gosync.Mutex{}
-	s.locks[id] = m
-	return m
+	delete(s.inflight, id)
 }
 
 func (s *Scheduler) Tick(ctx context.Context, now time.Time) error {
@@ -56,14 +59,29 @@ func (s *Scheduler) Tick(ctx context.Context, now time.Time) error {
 	if len(tasks) == 0 {
 		return nil
 	}
-	ids := make([]int32, len(tasks))
-	for i, task := range tasks {
-		ids[i] = task.ID
+	claimed := make([]Task, 0, len(tasks))
+	ids := make([]int32, 0, len(tasks))
+	s.mu.Lock()
+	for _, task := range tasks {
+		if !s.claimLocked(task.ID) {
+			continue
+		}
+		claimed = append(claimed, task)
+		ids = append(ids, task.ID)
+	}
+	s.mu.Unlock()
+	if len(ids) == 0 {
+		return nil
 	}
 	if err := s.store.MarkRunning(ctx, ids); err != nil {
+		s.mu.Lock()
+		for _, id := range ids {
+			delete(s.inflight, id)
+		}
+		s.mu.Unlock()
 		return err
 	}
-	for _, task := range tasks {
+	for _, task := range claimed {
 		task := task
 		go s.run(ctx, task, "schedule")
 	}
@@ -71,6 +89,7 @@ func (s *Scheduler) Tick(ctx context.Context, now time.Time) error {
 }
 
 func (s *Scheduler) run(ctx context.Context, task Task, trigger string) {
+	defer s.unclaim(task.ID)
 	s.sem <- struct{}{}
 	defer func() { <-s.sem }()
 	result := Run(ctx, s.eng, task, time.Now)
@@ -80,22 +99,20 @@ func (s *Scheduler) run(ctx context.Context, task Task, trigger string) {
 }
 
 func (s *Scheduler) SyncNow(ctx context.Context, id int32) error {
-	lock := s.taskLock(id)
-	lock.Lock()
 	task, err := s.store.Get(ctx, id)
 	if err != nil {
-		lock.Unlock()
 		return err
 	}
-	if task.LastStatus == "running" {
-		lock.Unlock()
+	s.mu.Lock()
+	if task.LastStatus == "running" || !s.claimLocked(id) {
+		s.mu.Unlock()
 		return ErrBusy
 	}
+	s.mu.Unlock()
 	if err := s.store.MarkRunning(ctx, []int32{id}); err != nil {
-		lock.Unlock()
+		s.unclaim(id)
 		return err
 	}
-	lock.Unlock()
 	go s.run(ctx, task, "manual")
 	return nil
 }

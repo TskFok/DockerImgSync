@@ -172,3 +172,66 @@ func TestSyncNowIdleMarksAndFinishesManual(t *testing.T) {
 		t.Fatalf("finish %+v status %s", finishes[0], finishes[0].result.Status)
 	}
 }
+
+type blockingEngine struct {
+	digest  string
+	started chan struct{}
+	unblock chan struct{}
+	once    gosync.Once
+}
+
+func (b *blockingEngine) Digest(ctx context.Context, ref string, auth *Auth) (string, error) {
+	b.once.Do(func() { close(b.started) })
+	<-b.unblock
+	return b.digest, nil
+}
+
+func (b *blockingEngine) Copy(ctx context.Context, src, dst string, srcAuth, dstAuth *Auth) error {
+	return nil
+}
+
+func TestTickDoesNotRerunInFlightSyncNow(t *testing.T) {
+	task := sampleTask(1, "sha256:same", "idle")
+	store := newFakeStore()
+	store.byID[1] = task
+	store.due = []Task{task}
+	eng := &blockingEngine{
+		digest:  "sha256:same",
+		started: make(chan struct{}),
+		unblock: make(chan struct{}),
+	}
+	s := NewScheduler(store, eng)
+	if err := s.SyncNow(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-eng.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Digest did not start")
+	}
+	if err := s.Tick(context.Background(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	markCalls := store.markCalls
+	store.mu.Unlock()
+	if markCalls != 1 {
+		t.Fatalf("Tick should not MarkRunning an already claimed id, calls=%d", markCalls)
+	}
+	close(eng.unblock)
+	finishes := waitFinishes(t, store.finishCh, 1)
+	if finishes[0].id != 1 {
+		t.Fatalf("finish %+v", finishes[0])
+	}
+	select {
+	case extra := <-store.finishCh:
+		t.Fatalf("Finish for id %d happened twice: %+v", extra.id, extra)
+	case <-time.After(150 * time.Millisecond):
+	}
+	store.mu.Lock()
+	n := len(store.finished)
+	store.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("Finish count %d", n)
+	}
+}
