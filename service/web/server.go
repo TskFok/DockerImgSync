@@ -24,6 +24,7 @@ type CredentialStore interface {
 
 type Deps struct {
 	Store         CredentialStore
+	Registries    RegistryStore
 	AdminUser     string
 	AdminPassword string
 	SessionSecret string
@@ -62,6 +63,12 @@ func NewRouter(deps Deps) http.Handler {
 		r.Get("/credentials/{id}/edit", s.handleCredentialEdit)
 		r.Post("/credentials/{id}/delete", s.handleCredentialDelete)
 		r.Post("/credentials/{id}", s.handleCredentialUpdate)
+		r.Get("/registries", s.handleRegistryList)
+		r.Get("/registries/new", s.handleRegistryNew)
+		r.Post("/registries", s.handleRegistryCreate)
+		r.Get("/registries/{id}/edit", s.handleRegistryEdit)
+		r.Post("/registries/{id}/delete", s.handleRegistryDelete)
+		r.Post("/registries/{id}", s.handleRegistryUpdate)
 	})
 	return r
 }
@@ -198,4 +205,6 @@ type pageData struct {
 	IsEdit      bool
 	Credentials []Credential
 	Credential  Credential
+	Registries  []Registry
+	Registry    Registry
 }

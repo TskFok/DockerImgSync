@@ -1,0 +1,28 @@
+{{define "registry_form"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{if .IsEdit}}编辑目标仓库{{else}}新建目标仓库{{end}}</title>
+</head>
+<body>
+{{template "nav" .}}
+<h1>{{if .IsEdit}}编辑目标仓库{{else}}新建目标仓库{{end}}</h1>
+{{if .Error}}<p>{{.Error}}</p>{{end}}
+<form action="{{.Action}}" method="post">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label>名称 <input type="text" name="name" value="{{.Registry.Name}}"></label>
+<label>地址 <input type="text" name="address" value="{{.Registry.Address}}"></label>
+<label>命名空间 <input type="text" name="namespace" value="{{.Registry.Namespace}}"></label>
+<label>登录信息
+<select name="credential_id">
+{{range .Credentials}}
+<option value="{{.ID}}" {{if eq .ID $.Registry.CredentialID}}selected{{end}}>{{.Name}}</option>
+{{end}}
+</select>
+</label>
+<button type="submit">保存</button>
+</form>
+</body>
+</html>
+{{end}}
