@@ -193,12 +193,14 @@ func planStatements(tables []tableSpec, exists map[string]bool, live map[string]
 	var stmts []plannedStmt
 	var created []string
 	var delayed []tableSpec
+	delayedSet := map[string]bool{}
 	for _, table := range tables {
 		if exists[table.Name] {
 			continue
 		}
-		if referencesPending(table, pending) {
+		if referencesPending(table, pending) || referencesDelayed(table, delayedSet) {
 			delayed = append(delayed, table)
+			delayedSet[table.Name] = true
 			continue
 		}
 		stmts = append(stmts, plannedStmt{Table: table.Name, SQL: table.CreateSQL, Create: true})
@@ -231,6 +233,7 @@ func planStatements(tables []tableSpec, exists map[string]bool, live map[string]
 		mark(table.Name)
 	}
 
+	var deferred []deferredAdd
 	for _, table := range tables {
 		if !exists[table.Name] {
 			continue
@@ -242,6 +245,12 @@ func planStatements(tables []tableSpec, exists map[string]bool, live map[string]
 			alt.AddFKs = appendFKClause(alt.AddFKs, fk.Clause)
 		}
 		alt.DropFKs = withoutNames(alt.DropFKs, dropped)
+		var deferredFKs []string
+		alt.AddFKs, deferredFKs = splitDelayedFKs(table, alt.AddFKs, delayedSet)
+		if len(deferredFKs) > 0 {
+			deferred = append(deferred, deferredAdd{Table: table.Name, Clauses: deferredFKs})
+			mark(table.Name)
+		}
 		sql, ok := renderAlter(table.Name, alt)
 		if !ok {
 			continue
@@ -254,7 +263,52 @@ func planStatements(tables []tableSpec, exists map[string]bool, live map[string]
 		stmts = append(stmts, plannedStmt{Table: table.Name, SQL: table.CreateSQL, Create: true})
 		created = append(created, table.Name)
 	}
+	for _, add := range deferred {
+		parts := make([]string, len(add.Clauses))
+		for i, clause := range add.Clauses {
+			parts[i] = "ADD " + clause
+		}
+		stmts = append(stmts, plannedStmt{
+			Table: add.Table,
+			SQL:   "ALTER TABLE `" + add.Table + "` " + strings.Join(parts, ", "),
+		})
+	}
 	return stmts, created, altered
+}
+
+type deferredAdd struct {
+	Table   string
+	Clauses []string
+}
+
+// referencesDelayed 判断缺失表是否有外键指向已被延后创建的表。
+func referencesDelayed(table tableSpec, delayed map[string]bool) bool {
+	for _, fk := range table.ForeignKeys {
+		if delayed[fk.RefTable] {
+			return true
+		}
+	}
+	return false
+}
+
+// splitDelayedFKs 把指向延后建表的外键补齐子句拆出，留给延后建表之后执行。
+func splitDelayedFKs(table tableSpec, clauses []string, delayed map[string]bool) ([]string, []string) {
+	if len(delayed) == 0 {
+		return clauses, nil
+	}
+	refOf := map[string]string{}
+	for _, fk := range table.ForeignKeys {
+		refOf[fk.Clause] = fk.RefTable
+	}
+	var now, later []string
+	for _, clause := range clauses {
+		if delayed[refOf[clause]] {
+			later = append(later, clause)
+		} else {
+			now = append(now, clause)
+		}
+	}
+	return now, later
 }
 
 func pendingColumnChanges(tables []tableSpec, exists map[string]bool, live map[string]liveTable) map[string]map[string]bool {

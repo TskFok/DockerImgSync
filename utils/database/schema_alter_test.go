@@ -309,3 +309,86 @@ func TestPlanKeepsSingleAlterWhenChangeIsLocal(t *testing.T) {
 		t.Fatalf("语句 = %s", stmts[0].SQL)
 	}
 }
+
+func TestPlanDelaysMissingChildOfDelayedTable(t *testing.T) {
+	tables, err := desiredTables("")
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	exists := map[string]bool{"credential": true}
+	live := map[string]liveTable{"credential": matchingLive(tables[0])}
+	id := live["credential"].Columns["id"]
+	id.TypeName = "bigint"
+	live["credential"].Columns["id"] = id
+
+	stmts, created, _ := planStatements(tables, exists, live)
+	modAt := -1
+	createAt := map[string]int{}
+	for i, stmt := range stmts {
+		if strings.Contains(stmt.SQL, "ALTER TABLE `credential`") && strings.Contains(stmt.SQL, "MODIFY COLUMN `id`") {
+			modAt = i
+		}
+		if stmt.Create {
+			createAt[stmt.Table] = i
+		}
+	}
+	if modAt < 0 {
+		t.Fatalf("缺少 credential.id 的修改: %#v", stmts)
+	}
+	for _, name := range []string{"registry", "sync_task", "sync_log"} {
+		at, ok := createAt[name]
+		if !ok || at < modAt {
+			t.Fatalf("%s 的 CREATE 应晚于 credential 的修改: %#v", name, stmts)
+		}
+	}
+	if !(createAt["registry"] < createAt["sync_task"] && createAt["sync_task"] < createAt["sync_log"]) {
+		t.Fatalf("CREATE 顺序应为 registry、sync_task、sync_log: %#v", stmts)
+	}
+	if strings.Join(created, ",") != "registry,sync_task,sync_log" {
+		t.Fatalf("新建 = %v", created)
+	}
+}
+
+func TestPlanAddsForeignKeyAfterDelayedReferencedTableCreate(t *testing.T) {
+	tables, err := desiredTables("")
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	exists := map[string]bool{"credential": true, "sync_task": true}
+	live := map[string]liveTable{
+		"credential": matchingLive(tables[0]),
+		"sync_task":  matchingLive(tables[2]),
+	}
+	id := live["credential"].Columns["id"]
+	id.TypeName = "bigint"
+	live["credential"].Columns["id"] = id
+	delete(live["sync_task"].ForeignKeys, "fk_sync_task_registry")
+
+	stmts, _, _ := planStatements(tables, exists, live)
+	modAt, createAt, addAt := -1, -1, -1
+	for i, stmt := range stmts {
+		if strings.Contains(stmt.SQL, "ALTER TABLE `credential`") && strings.Contains(stmt.SQL, "MODIFY COLUMN `id`") {
+			modAt = i
+		}
+		if stmt.Create && stmt.Table == "registry" {
+			createAt = i
+		}
+		if strings.Contains(stmt.SQL, "ADD CONSTRAINT `fk_sync_task_registry`") {
+			if addAt >= 0 {
+				t.Fatalf("fk_sync_task_registry 重复添加: %#v", stmts)
+			}
+			addAt = i
+		}
+	}
+	if modAt < 0 || createAt < modAt {
+		t.Fatalf("CREATE registry 应晚于 credential 的修改: %#v", stmts)
+	}
+	if addAt < createAt {
+		t.Fatalf("ADD CONSTRAINT fk_sync_task_registry 应晚于 CREATE registry: %#v", stmts)
+	}
+	for _, stmt := range stmts {
+		if strings.Contains(stmt.SQL, "DROP FOREIGN KEY `fk_sync_task_registry`") {
+			t.Fatalf("不应删除不存在的外键: %s", stmt.SQL)
+		}
+	}
+}
