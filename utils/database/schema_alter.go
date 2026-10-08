@@ -179,3 +179,148 @@ func quoteCols(cols []string) string {
 	}
 	return strings.Join(parts, ", ")
 }
+
+type plannedStmt struct {
+	Table  string
+	SQL    string
+	Create bool
+}
+
+func planStatements(tables []tableSpec, exists map[string]bool, live map[string]liveTable) ([]plannedStmt, []string, []string) {
+	pending := pendingColumnChanges(tables, exists, live)
+	cross := crossTableForeignKeys(tables, exists, live, pending)
+
+	var stmts []plannedStmt
+	var created []string
+	var delayed []tableSpec
+	for _, table := range tables {
+		if exists[table.Name] {
+			continue
+		}
+		if referencesPending(table, pending) {
+			delayed = append(delayed, table)
+			continue
+		}
+		stmts = append(stmts, plannedStmt{Table: table.Name, SQL: table.CreateSQL, Create: true})
+		created = append(created, table.Name)
+	}
+
+	var altered []string
+	alteredSet := map[string]bool{}
+	mark := func(name string) {
+		if alteredSet[name] {
+			return
+		}
+		alteredSet[name] = true
+		altered = append(altered, name)
+	}
+
+	for _, table := range tables {
+		fks := cross[table.Name]
+		if len(fks) == 0 {
+			continue
+		}
+		parts := make([]string, len(fks))
+		for i, fk := range fks {
+			parts[i] = "DROP FOREIGN KEY `" + fk.Name + "`"
+		}
+		stmts = append(stmts, plannedStmt{
+			Table: table.Name,
+			SQL:   "ALTER TABLE `" + table.Name + "` " + strings.Join(parts, ", "),
+		})
+		mark(table.Name)
+	}
+
+	for _, table := range tables {
+		if !exists[table.Name] {
+			continue
+		}
+		alt := diffTable(table, live[table.Name])
+		dropped := map[string]bool{}
+		for _, fk := range cross[table.Name] {
+			dropped[fk.Name] = true
+			alt.AddFKs = appendFKClause(alt.AddFKs, fk.Clause)
+		}
+		alt.DropFKs = withoutNames(alt.DropFKs, dropped)
+		sql, ok := renderAlter(table.Name, alt)
+		if !ok {
+			continue
+		}
+		stmts = append(stmts, plannedStmt{Table: table.Name, SQL: sql})
+		mark(table.Name)
+	}
+
+	for _, table := range delayed {
+		stmts = append(stmts, plannedStmt{Table: table.Name, SQL: table.CreateSQL, Create: true})
+		created = append(created, table.Name)
+	}
+	return stmts, created, altered
+}
+
+func pendingColumnChanges(tables []tableSpec, exists map[string]bool, live map[string]liveTable) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, table := range tables {
+		if !exists[table.Name] {
+			continue
+		}
+		have := live[table.Name]
+		for _, col := range table.Columns {
+			got, ok := have.Columns[col.Name]
+			if ok && !columnEqual(col, got) {
+				if out[table.Name] == nil {
+					out[table.Name] = map[string]bool{}
+				}
+				out[table.Name][col.Name] = true
+			}
+		}
+	}
+	return out
+}
+
+func crossTableForeignKeys(tables []tableSpec, exists map[string]bool, live map[string]liveTable, pending map[string]map[string]bool) map[string][]foreignKeySpec {
+	out := map[string][]foreignKeySpec{}
+	for _, table := range tables {
+		if !exists[table.Name] {
+			continue
+		}
+		have := live[table.Name].ForeignKeys
+		for _, fk := range table.ForeignKeys {
+			if fk.RefTable == table.Name || !overlaps(fk.RefColumns, pending[fk.RefTable]) {
+				continue
+			}
+			if _, ok := have[fk.Name]; !ok {
+				continue
+			}
+			out[table.Name] = append(out[table.Name], fk)
+		}
+	}
+	return out
+}
+
+func referencesPending(table tableSpec, pending map[string]map[string]bool) bool {
+	for _, fk := range table.ForeignKeys {
+		if overlaps(fk.RefColumns, pending[fk.RefTable]) {
+			return true
+		}
+	}
+	return false
+}
+
+func appendFKClause(clauses []string, clause string) []string {
+	for _, existing := range clauses {
+		if existing == clause {
+			return clauses
+		}
+	}
+	return append(clauses, clause)
+}
+
+func withoutNames(names []string, drop map[string]bool) []string {
+	var kept []string
+	for _, name := range names {
+		if !drop[name] {
+			kept = append(kept, name)
+		}
+	}
+	return kept
+}

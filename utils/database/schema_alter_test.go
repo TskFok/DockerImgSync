@@ -200,3 +200,112 @@ func TestAlterRecreatesPrimaryKeyAndIndexOnModifiedColumn(t *testing.T) {
 		t.Fatalf("删除、修改、重建的顺序不对: %s", stmt)
 	}
 }
+
+func TestPlanDropsReferencingForeignKeyBeforeColumnChange(t *testing.T) {
+	tables, err := desiredTables("img_")
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	exists := map[string]bool{}
+	live := map[string]liveTable{}
+	for _, table := range tables {
+		exists[table.Name] = true
+		live[table.Name] = matchingLive(table)
+	}
+	id := live["img_credential"].Columns["id"]
+	id.TypeName = "bigint"
+	live["img_credential"].Columns["id"] = id
+
+	stmts, created, altered := planStatements(tables, exists, live)
+	if len(created) != 0 {
+		t.Fatalf("不应建表: %v", created)
+	}
+	sqls := make([]string, len(stmts))
+	for i, stmt := range stmts {
+		sqls[i] = stmt.SQL
+	}
+	joined := strings.Join(sqls, "\n")
+	regDrop := strings.Index(joined, "ALTER TABLE `img_registry` DROP FOREIGN KEY `fk_registry_credential`")
+	taskDrop := strings.Index(joined, "ALTER TABLE `img_sync_task` DROP FOREIGN KEY `fk_sync_task_source_credential`")
+	mod := strings.Index(joined, "ALTER TABLE `img_credential`")
+	regAdd := strings.Index(joined, "ALTER TABLE `img_registry` ADD CONSTRAINT `fk_registry_credential`")
+	taskAdd := strings.Index(joined, "ADD CONSTRAINT `fk_sync_task_source_credential`")
+	if regDrop < 0 || taskDrop < 0 || mod < 0 || regAdd < 0 || taskAdd < 0 {
+		t.Fatalf("语句不完整:\n%s", joined)
+	}
+	if !(regDrop < mod && taskDrop < mod && mod < regAdd && mod < taskAdd) {
+		t.Fatalf("应先删引用外键，再改 credential.id，再加回外键:\n%s", joined)
+	}
+	if strings.Contains(sqls[0], "ADD CONSTRAINT") {
+		t.Fatalf("第一条不应在改列前加回外键: %s", sqls[0])
+	}
+	seen := map[string]bool{}
+	for _, name := range altered {
+		if seen[name] {
+			t.Fatalf("修改列表重复: %v", altered)
+		}
+		seen[name] = true
+	}
+	for _, name := range []string{"img_credential", "img_registry", "img_sync_task"} {
+		if !seen[name] {
+			t.Fatalf("修改列表 = %v，缺少 %s", altered, name)
+		}
+	}
+}
+
+func TestPlanCreatesReferencingTableAfterColumnChange(t *testing.T) {
+	tables, err := desiredTables("")
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	exists := map[string]bool{}
+	live := map[string]liveTable{}
+	for _, table := range tables {
+		exists[table.Name] = true
+		live[table.Name] = matchingLive(table)
+	}
+	exists["registry"] = false
+	id := live["credential"].Columns["id"]
+	id.TypeName = "bigint"
+	live["credential"].Columns["id"] = id
+
+	stmts, created, _ := planStatements(tables, exists, live)
+	modAt := -1
+	createAt := -1
+	for i, stmt := range stmts {
+		if strings.Contains(stmt.SQL, "ALTER TABLE `credential`") && strings.Contains(stmt.SQL, "MODIFY COLUMN `id`") {
+			modAt = i
+		}
+		if stmt.Create && stmt.Table == "registry" {
+			createAt = i
+		}
+	}
+	if modAt < 0 || createAt < 0 || createAt < modAt {
+		t.Fatalf("registry 的 CREATE 应晚于 credential.id 的修改: %#v", stmts)
+	}
+	if len(created) != 1 || created[0] != "registry" {
+		t.Fatalf("新建 = %v", created)
+	}
+}
+
+func TestPlanKeepsSingleAlterWhenChangeIsLocal(t *testing.T) {
+	tables, err := desiredTables("")
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	exists := map[string]bool{}
+	live := map[string]liveTable{}
+	for _, table := range tables {
+		exists[table.Name] = true
+		live[table.Name] = matchingLive(table)
+	}
+	delete(live["registry"].Columns, "namespace")
+
+	stmts, created, altered := planStatements(tables, exists, live)
+	if len(created) != 0 || len(altered) != 1 || altered[0] != "registry" || len(stmts) != 1 {
+		t.Fatalf("语句 = %#v，新建 = %v，修改 = %v", stmts, created, altered)
+	}
+	if !strings.Contains(stmts[0].SQL, "ADD COLUMN `namespace` varchar(255) NOT NULL") {
+		t.Fatalf("语句 = %s", stmts[0].SQL)
+	}
+}
