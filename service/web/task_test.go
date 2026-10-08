@@ -213,6 +213,58 @@ func TestTaskUpdateIntervalZeroToPositiveSetsNextRun(t *testing.T) {
 	assertNextRunAroundNow(t, store.updated[0].NextRunAt, start, end)
 }
 
+func TestTaskUpdateClearsLastDigestWhenCopyTargetChanges(t *testing.T) {
+	base := SyncTask{
+		ID:              1,
+		Name:            "nginx",
+		SourceImage:     "docker.io/library/nginx:latest",
+		RegistryID:      1,
+		DestRepository:  "",
+		DestTag:         "",
+		IntervalSeconds: 60,
+		Enabled:         true,
+		LastDigest:      "sha256:old",
+	}
+	cases := []struct {
+		name    string
+		image   string
+		mutate  func(url.Values)
+		cleared bool
+	}{
+		{name: "source_image", image: "redis:latest", cleared: true},
+		{name: "registry_id", image: "nginx:latest", mutate: func(form url.Values) { form.Set("registry_id", "2") }, cleared: true},
+		{name: "dest_repository", image: "nginx:latest", mutate: func(form url.Values) { form.Set("dest_repository", "mirror/nginx") }, cleared: true},
+		{name: "dest_tag", image: "nginx:latest", mutate: func(form url.Values) { form.Set("dest_tag", "stable") }, cleared: true},
+		{name: "interval_only", image: "nginx:latest", mutate: func(form url.Values) { form.Set("interval_seconds", "120") }, cleared: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeTaskStore{tasks: []SyncTask{base}}
+			h := testTaskRouter(store, nil)
+			cookie := doLogin(t, h)
+			csrf := loggedInCSRF(t, h, cookie)
+			form := taskForm(csrf, tc.image, "60")
+			if tc.mutate != nil {
+				tc.mutate(form)
+			}
+			rec := postTask(t, h, cookie, "/tasks/1", form)
+			if rec.Code != http.StatusFound {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			if len(store.updated) != 1 {
+				t.Fatalf("更新次数=%d，应为 1", len(store.updated))
+			}
+			got := store.updated[0].LastDigest
+			if tc.cleared && got != "" {
+				t.Fatalf("LastDigest=%q，变更复制目标后应清空", got)
+			}
+			if !tc.cleared && got != "sha256:old" {
+				t.Fatalf("LastDigest=%q，未改复制目标时应保留", got)
+			}
+		})
+	}
+}
+
 func TestTaskUpdateIntervalPositiveToZeroClearsNextRun(t *testing.T) {
 	next := time.Now().Add(-time.Minute)
 	store := &fakeTaskStore{tasks: []SyncTask{{

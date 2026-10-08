@@ -116,6 +116,10 @@ func (s *server) requireCSRF(next http.Handler) http.Handler {
 }
 
 func (s *server) handleLoginGet(w http.ResponseWriter, r *http.Request) {
+	if user, _, err := s.readSession(r); err == nil && user == s.deps.AdminUser {
+		http.Redirect(w, r, "/tasks", http.StatusFound)
+		return
+	}
 	csrf, err := s.issueSession(w, "")
 	if err != nil {
 		http.Error(w, "无法签发会话", http.StatusInternalServerError)
@@ -136,7 +140,9 @@ func (s *server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 	user := r.PostForm.Get("username")
 	pass := r.PostForm.Get("password")
-	if user != s.deps.AdminUser || !CheckPassword(pass, s.deps.AdminPassword) {
+	passOK := CheckPassword(pass, s.deps.AdminPassword)
+	userOK := subtle.ConstantTimeCompare([]byte(user), []byte(s.deps.AdminUser)) == 1
+	if !userOK || !passOK {
 		http.Error(w, "用户名或密码错误", http.StatusUnauthorized)
 		return
 	}

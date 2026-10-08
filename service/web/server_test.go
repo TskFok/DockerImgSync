@@ -132,17 +132,37 @@ func TestLoginRedirectUnauthenticated(t *testing.T) {
 func TestLoginWrongPassword(t *testing.T) {
 	h := testRouter(&fakeCredentialStore{})
 	csrf, cookie := getLogin(t, h)
-	form := url.Values{}
-	form.Set("csrf", csrf)
-	form.Set("username", "admin")
-	form.Set("password", "wrong-pass")
-	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, user := range []string{"admin", "nobody"} {
+		form := url.Values{}
+		form.Set("csrf", csrf)
+		form.Set("username", user)
+		form.Set("password", "wrong-pass")
+		req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "用户名或密码错误") {
+			t.Fatalf("user=%s status=%d body=%s", user, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestLoginGetRedirectsValidAdmin(t *testing.T) {
+	h := testRouter(&fakeCredentialStore{})
+	cookie := doLogin(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnauthorized {
+	if rec.Code != http.StatusFound {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if loc := rec.Header().Get("Location"); loc != "/tasks" {
+		t.Fatalf("Location=%s", loc)
+	}
+	if c := sessionCookie(rec); c != nil {
+		t.Fatalf("已登录访问 /login 不应替换会话: %+v", c)
 	}
 }
 

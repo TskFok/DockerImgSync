@@ -15,6 +15,7 @@ type fakeRegistryStore struct {
 	registries  []Registry
 	created     []Registry
 	createCount int
+	updateCount int
 	deleteCount int
 	deleteErr   error
 }
@@ -39,6 +40,7 @@ func (f *fakeRegistryStore) CreateRegistry(ctx context.Context, r Registry) erro
 }
 
 func (f *fakeRegistryStore) UpdateRegistry(ctx context.Context, r Registry) error {
+	f.updateCount++
 	return nil
 }
 
@@ -121,6 +123,32 @@ func TestRegistryCreateStoresValidRecord(t *testing.T) {
 	got := store.created[0]
 	if got.Name != "杭州" || got.Address != "registry.example.com" || got.Namespace != "myns" || got.CredentialID != 1 {
 		t.Fatalf("假存储记录=%+v", got)
+	}
+}
+
+func TestRegistryRejectsZeroCredential(t *testing.T) {
+	store := &fakeRegistryStore{}
+	h := testRegistryRouter(store)
+	cookie := doLogin(t, h)
+	csrf := loggedInCSRF(t, h, cookie)
+	for _, path := range []string{"/registries", "/registries/1"} {
+		form := url.Values{}
+		form.Set("csrf", csrf)
+		form.Set("name", "杭州")
+		form.Set("address", "registry.example.com")
+		form.Set("namespace", "myns")
+		form.Set("credential_id", "0")
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "请选择登录信息") {
+			t.Fatalf("%s status=%d body=%s", path, rec.Code, rec.Body.String())
+		}
+	}
+	if store.createCount != 0 || store.updateCount != 0 {
+		t.Fatalf("不应调用存储 create=%d update=%d", store.createCount, store.updateCount)
 	}
 }
 

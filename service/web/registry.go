@@ -157,5 +157,8 @@ func validateRegistry(reg Registry) string {
 	if err := model.ValidateNamespace(reg.Namespace); err != nil {
 		return err.Error()
 	}
+	if reg.CredentialID == 0 {
+		return "请选择登录信息"
+	}
 	return ""
 }

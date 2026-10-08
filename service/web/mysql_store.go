@@ -274,6 +274,7 @@ func (s *MySQLStore) UpdateTask(ctx context.Context, task SyncTask, now time.Tim
 		"dest_tag":             task.DestTag,
 		"interval_seconds":     task.IntervalSeconds,
 		"enabled":              task.Enabled,
+		"last_digest":          task.LastDigest,
 		"next_run_at":          nullTime(task.NextRunAt),
 		"updated_at":           now,
 	}).Error

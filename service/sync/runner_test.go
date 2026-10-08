@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"strings"
+	gosync "sync"
 	"testing"
 	"time"
 )
 
 type fakeEngine struct {
+	mu        gosync.Mutex
 	digest    string
 	digestErr error
 	copyErr   error
@@ -19,11 +21,15 @@ type fakeEngine struct {
 }
 
 func (f *fakeEngine) Digest(ctx context.Context, ref string, auth *Auth) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.srcAuth = auth
 	return f.digest, f.digestErr
 }
 
 func (f *fakeEngine) Copy(ctx context.Context, src, dst string, srcAuth, dstAuth *Auth) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.copyCount++
 	f.dst = dst
 	f.srcAuth = srcAuth

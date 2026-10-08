@@ -11,7 +11,7 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "cli",
 	Short: "镜像同步",
-	Long:  `root.`,
+	Long:  `把源镜像按计划复制到目标仓库。`,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

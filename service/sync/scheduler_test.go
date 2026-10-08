@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"errors"
+	"strings"
 	gosync "sync"
 	"testing"
 	"time"
@@ -14,15 +15,25 @@ type finishCall struct {
 	result  Result
 }
 
+type unsavedCall struct {
+	id        int32
+	lastError string
+	ctx       context.Context
+}
+
 type fakeStore struct {
-	mu        gosync.Mutex
-	due       []Task
-	byID      map[int32]Task
-	listCalls int
-	marked    []int32
-	markCalls int
-	finished  []finishCall
-	finishCh  chan finishCall
+	mu         gosync.Mutex
+	due        []Task
+	byID       map[int32]Task
+	listCalls  int
+	marked     []int32
+	markCalls  int
+	finished   []finishCall
+	finishCh   chan finishCall
+	finishErr  error
+	finishCtxs []context.Context
+	unsaved    []unsavedCall
+	unsavedCh  chan struct{}
 }
 
 func newFakeStore() *fakeStore {
@@ -64,9 +75,25 @@ func (f *fakeStore) MarkRunning(ctx context.Context, ids []int32) error {
 func (f *fakeStore) Finish(ctx context.Context, id int32, trigger string, result Result) error {
 	call := finishCall{id: id, trigger: trigger, result: result}
 	f.mu.Lock()
+	f.finishCtxs = append(f.finishCtxs, ctx)
 	f.finished = append(f.finished, call)
+	err := f.finishErr
 	f.mu.Unlock()
+	if err != nil {
+		return err
+	}
 	f.finishCh <- call
+	return nil
+}
+
+func (f *fakeStore) MarkResultUnsaved(ctx context.Context, id int32, lastError string) error {
+	f.mu.Lock()
+	f.unsaved = append(f.unsaved, unsavedCall{id: id, lastError: lastError, ctx: ctx})
+	ch := f.unsavedCh
+	f.mu.Unlock()
+	if ch != nil {
+		ch <- struct{}{}
+	}
 	return nil
 }
 
@@ -121,6 +148,43 @@ func TestTickMarksDueAndFinishesSkipped(t *testing.T) {
 		if f.trigger != "schedule" || f.result.Status != "skipped" {
 			t.Fatalf("finish %+v status %s", f, f.result.Status)
 		}
+	}
+}
+
+func TestFinishFailureMarksTaskFailed(t *testing.T) {
+	store := newFakeStore()
+	store.finishErr = errors.New("write failed password=registry-pass")
+	store.unsavedCh = make(chan struct{}, 1)
+	store.due = []Task{sampleTask(1, "sha256:same", "idle")}
+	s := NewScheduler(store, &fakeEngine{digest: "sha256:same"})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := s.Tick(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-store.unsavedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Finish 全部失败后未标记任务失败")
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.finished) != finishAttempts {
+		t.Fatalf("Finish 调用次数=%d，应为 %d", len(store.finished), finishAttempts)
+	}
+	for _, ctx := range store.finishCtxs {
+		if ctx != context.Background() {
+			t.Fatal("Finish 重试应使用 context.Background()")
+		}
+	}
+	if len(store.unsaved) != 1 || store.unsaved[0].id != 1 {
+		t.Fatalf("未保存标记=%+v", store.unsaved)
+	}
+	if store.unsaved[0].ctx != context.Background() {
+		t.Fatal("失败标记应使用 context.Background()")
+	}
+	if store.unsaved[0].lastError != resultUnsavedError || strings.Contains(store.unsaved[0].lastError, "registry-pass") {
+		t.Fatalf("last_error=%q", store.unsaved[0].lastError)
 	}
 }
 

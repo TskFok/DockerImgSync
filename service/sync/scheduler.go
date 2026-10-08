@@ -10,12 +10,17 @@ import (
 
 const PollInterval = 15 * time.Second
 
+const finishAttempts = 3
+
+const resultUnsavedError = "保存同步结果失败"
+
 var ErrBusy = errors.New("任务正在同步")
 
 type Store interface {
 	ListDue(ctx context.Context, now time.Time) ([]Task, error)
 	MarkRunning(ctx context.Context, ids []int32) error
 	Finish(ctx context.Context, id int32, trigger string, result Result) error
+	MarkResultUnsaved(ctx context.Context, id int32, lastError string) error
 	ResetRunning(ctx context.Context, now time.Time) error
 	Get(ctx context.Context, id int32) (Task, error)
 }
@@ -93,8 +98,17 @@ func (s *Scheduler) run(ctx context.Context, task Task, trigger string) {
 	s.sem <- struct{}{}
 	defer func() { <-s.sem }()
 	result := Run(ctx, s.eng, task, time.Now)
-	if err := s.store.Finish(ctx, task.ID, trigger, result); err != nil {
-		fmt.Println(err)
+	s.persistResult(task.ID, trigger, result)
+}
+
+func (s *Scheduler) persistResult(id int32, trigger string, result Result) {
+	for attempt := 0; attempt < finishAttempts; attempt++ {
+		if err := s.store.Finish(context.Background(), id, trigger, result); err == nil {
+			return
+		}
+	}
+	if err := s.store.MarkResultUnsaved(context.Background(), id, resultUnsavedError); err != nil {
+		fmt.Println(resultUnsavedError)
 	}
 }
 

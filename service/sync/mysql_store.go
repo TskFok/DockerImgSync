@@ -92,6 +92,21 @@ func (s *MySQLStore) toTask(row joinedTask) (Task, error) {
 	return task, nil
 }
 
+const decryptFailedMessage = "登录信息无法解密"
+
+func splitDecryptFailures(rows []joinedTask, convert func(joinedTask) (Task, error)) (tasks []Task, failedIDs []int32) {
+	tasks = make([]Task, 0, len(rows))
+	for _, row := range rows {
+		task, err := convert(row)
+		if err != nil {
+			failedIDs = append(failedIDs, row.ID)
+			continue
+		}
+		tasks = append(tasks, task)
+	}
+	return tasks, failedIDs
+}
+
 func (s *MySQLStore) ListDue(ctx context.Context, now time.Time) ([]Task, error) {
 	var rows []joinedTask
 	err := s.taskQuery(ctx).
@@ -100,15 +115,21 @@ func (s *MySQLStore) ListDue(ctx context.Context, now time.Time) ([]Task, error)
 	if err != nil {
 		return nil, err
 	}
-	tasks := make([]Task, 0, len(rows))
-	for _, row := range rows {
-		task, err := s.toTask(row)
-		if err != nil {
-			return nil, err
-		}
-		tasks = append(tasks, task)
+	tasks, failedIDs := splitDecryptFailures(rows, s.toTask)
+	if err := s.markDecryptFailed(ctx, failedIDs); err != nil {
+		return nil, err
 	}
 	return tasks, nil
+}
+
+func (s *MySQLStore) markDecryptFailed(ctx context.Context, ids []int32) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return s.db.WithContext(ctx).Model(&model.SyncTask{}).Where("id IN ?", ids).Updates(map[string]interface{}{
+		"last_status": "failed",
+		"last_error":  decryptFailedMessage,
+	}).Error
 }
 
 func (s *MySQLStore) MarkRunning(ctx context.Context, ids []int32) error {
@@ -119,6 +140,13 @@ func (s *MySQLStore) MarkRunning(ctx context.Context, ids []int32) error {
 		Model(&model.SyncTask{}).
 		Where("id IN ?", ids).
 		Update("last_status", "running").Error
+}
+
+func (s *MySQLStore) MarkResultUnsaved(ctx context.Context, id int32, lastError string) error {
+	return s.db.WithContext(ctx).Model(&model.SyncTask{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"last_status": "failed",
+		"last_error":  lastError,
+	}).Error
 }
 
 func (s *MySQLStore) Finish(ctx context.Context, id int32, trigger string, result Result) error {

@@ -323,7 +323,17 @@ func prepareTask(task SyncTask, previous *SyncTask, now time.Time) (SyncTask, st
 	} else if previous.IntervalSeconds == 0 || (!previous.Enabled && task.Enabled) {
 		task.NextRunAt = &now
 	}
+	if copyTargetChanged(*previous, task) {
+		task.LastDigest = ""
+	}
 	return task, ""
+}
+
+func copyTargetChanged(previous, task SyncTask) bool {
+	return previous.SourceImage != task.SourceImage ||
+		previous.RegistryID != task.RegistryID ||
+		previous.DestRepository != task.DestRepository ||
+		previous.DestTag != task.DestTag
 }
 
 func optionalInt32(raw string) *int32 {
