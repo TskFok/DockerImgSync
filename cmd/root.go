@@ -9,8 +9,8 @@ import (
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "GinApi",
-	Short: "root",
+	Use:   "cli",
+	Short: "镜像同步",
 	Long:  `root.`,
 }
 

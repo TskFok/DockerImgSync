@@ -3,6 +3,7 @@ package conf
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/TskFok/DockerImgSync/app/global"
@@ -22,7 +23,6 @@ func TestEnvFilePathUsesExecutableDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("解析 env 路径失败: %v", err)
 	}
-
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatalf("获取可执行文件失败: %v", err)
@@ -41,39 +41,66 @@ func TestLoadConfigReadsValuesFromEnvFile(t *testing.T) {
 	resetGlobals()
 	t.Cleanup(resetGlobals)
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".env")
-	content := "" +
-		"MYSQL_DSN=\"user:pass@tcp(127.0.0.1:3306)/sync_task?charset=utf8mb4&parseTime=True&loc=Local\"\n" +
-		"MYSQL_PREFIX=img_\n" +
-		"DOCKER_HOST=https://hub.docker.com\n" +
-		"DOCKER_USERNAME=docker-user\n" +
-		"DOCKER_PASSWORD=docker-pass\n" +
-		"GITHUB_HOST=https://api.github.com/repos/example/hub-mirror/issues\n" +
-		"GITHUB_TOKEN=token-value\n" +
-		"PROXY_HOST=http://127.0.0.1:7890\n" +
-		"REDIS_HOST=127.0.0.1:6379\n" +
-		"REDIS_USER=default\n" +
-		"REDIS_PASSWORD=redis-pass\n"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("写入测试 env 失败: %v", err)
-	}
-
+	path := writeEnv(t, validEnv())
 	if err := LoadConfig(path); err != nil {
 		t.Fatalf("读取 env 失败: %v", err)
 	}
 
 	assertEqual(t, "MysqlDsn", global.MysqlDsn, "user:pass@tcp(127.0.0.1:3306)/sync_task?charset=utf8mb4&parseTime=True&loc=Local")
 	assertEqual(t, "MysqlPrefix", global.MysqlPrefix, "img_")
-	assertEqual(t, "DockerHost", global.DockerHost, "https://hub.docker.com")
-	assertEqual(t, "DockerUsername", global.DockerUsername, "docker-user")
-	assertEqual(t, "DockerPassword", global.DockerPassword, "docker-pass")
-	assertEqual(t, "GithubHost", global.GithubHost, "https://api.github.com/repos/example/hub-mirror/issues")
-	assertEqual(t, "GithubToken", global.GithubToken, "token-value")
-	assertEqual(t, "ProxyHost", global.ProxyHost, "http://127.0.0.1:7890")
-	assertEqual(t, "RedisHost", global.RedisHost, "127.0.0.1:6379")
-	assertEqual(t, "RedisUser", global.RedisUser, "default")
-	assertEqual(t, "RedisPassword", global.RedisPassword, "redis-pass")
+	assertEqual(t, "AdminUsername", global.AdminUsername, "admin")
+	assertEqual(t, "AdminPassword", global.AdminPassword, "admin-pass")
+	assertEqual(t, "SessionSecret", global.SessionSecret, "session-secret-must-be-32-characters-min")
+	assertEqual(t, "HTTPAddr", global.HTTPAddr, ":9090")
+	if string(global.CredentialKey) != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("CredentialKey = %q", string(global.CredentialKey))
+	}
+}
+
+func TestLoadConfigDefaultsHTTPAddr(t *testing.T) {
+	resetGlobals()
+	t.Cleanup(resetGlobals)
+
+	body := validEnv()
+	body = replaceLine(body, "HTTP_ADDR=:9090", "HTTP_ADDR=")
+	path := writeEnv(t, body)
+	if err := LoadConfig(path); err != nil {
+		t.Fatalf("读取 env 失败: %v", err)
+	}
+	assertEqual(t, "HTTPAddr", global.HTTPAddr, ":8080")
+}
+
+func TestLoadConfigRejectsMissingAdmin(t *testing.T) {
+	resetGlobals()
+	t.Cleanup(resetGlobals)
+
+	body := replaceLine(validEnv(), "ADMIN_USERNAME=admin", "ADMIN_USERNAME=")
+	err := LoadConfig(writeEnv(t, body))
+	if err == nil {
+		t.Fatal("缺少管理员用户名时应返回错误")
+	}
+}
+
+func TestLoadConfigRejectsShortSessionSecret(t *testing.T) {
+	resetGlobals()
+	t.Cleanup(resetGlobals)
+
+	body := replaceLine(validEnv(), "SESSION_SECRET=session-secret-must-be-32-characters-min", "SESSION_SECRET=short")
+	err := LoadConfig(writeEnv(t, body))
+	if err == nil {
+		t.Fatal("过短的 SESSION_SECRET 应返回错误")
+	}
+}
+
+func TestLoadConfigRejectsBadCredentialKey(t *testing.T) {
+	resetGlobals()
+	t.Cleanup(resetGlobals)
+
+	body := replaceLine(validEnv(), "CREDENTIAL_KEY=YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=", "CREDENTIAL_KEY=bm90LTMy")
+	err := LoadConfig(writeEnv(t, body))
+	if err == nil {
+		t.Fatal("长度不对的 CREDENTIAL_KEY 应返回错误")
+	}
 }
 
 func TestLoadConfigMissingFile(t *testing.T) {
@@ -83,50 +110,38 @@ func TestLoadConfigMissingFile(t *testing.T) {
 	}
 }
 
-func TestLoadConfigAllowsEmptyValues(t *testing.T) {
-	resetGlobals()
-	t.Cleanup(resetGlobals)
+func validEnv() string {
+	return "" +
+		"MYSQL_DSN=\"user:pass@tcp(127.0.0.1:3306)/sync_task?charset=utf8mb4&parseTime=True&loc=Local\"\n" +
+		"MYSQL_PREFIX=img_\n" +
+		"ADMIN_USERNAME=admin\n" +
+		"ADMIN_PASSWORD=admin-pass\n" +
+		"SESSION_SECRET=session-secret-must-be-32-characters-min\n" +
+		"CREDENTIAL_KEY=YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=\n" +
+		"HTTP_ADDR=:9090\n"
+}
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".env")
-	content := "" +
-		"MYSQL_DSN=\n" +
-		"MYSQL_PREFIX=\n" +
-		"DOCKER_HOST=\n" +
-		"DOCKER_USERNAME=\n" +
-		"DOCKER_PASSWORD=\n" +
-		"GITHUB_HOST=\n" +
-		"GITHUB_TOKEN=\n" +
-		"PROXY_HOST=\n" +
-		"REDIS_HOST=\n" +
-		"REDIS_USER=\n" +
-		"REDIS_PASSWORD=\n"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+func writeEnv(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("写入测试 env 失败: %v", err)
 	}
+	return path
+}
 
-	if err := LoadConfig(path); err != nil {
-		t.Fatalf("读取空值 env 失败: %v", err)
-	}
-
-	assertEqual(t, "MysqlDsn", global.MysqlDsn, "")
-	assertEqual(t, "DockerPassword", global.DockerPassword, "")
-	assertEqual(t, "GithubToken", global.GithubToken, "")
-	assertEqual(t, "RedisPassword", global.RedisPassword, "")
+func replaceLine(body, old, newLine string) string {
+	return strings.ReplaceAll(body, old, newLine)
 }
 
 func resetGlobals() {
 	global.MysqlDsn = ""
 	global.MysqlPrefix = ""
-	global.DockerHost = ""
-	global.DockerUsername = ""
-	global.DockerPassword = ""
-	global.GithubHost = ""
-	global.GithubToken = ""
-	global.ProxyHost = ""
-	global.RedisUser = ""
-	global.RedisPassword = ""
-	global.RedisHost = ""
+	global.AdminUsername = ""
+	global.AdminPassword = ""
+	global.SessionSecret = ""
+	global.CredentialKey = nil
+	global.HTTPAddr = ""
 }
 
 func assertEqual(t *testing.T, name, got, want string) {
