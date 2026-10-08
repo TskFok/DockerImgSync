@@ -6,7 +6,7 @@
 
 **Architecture:** `serve` 启动 HTTP 页面和进程内调度器。复制用 `go-containerregistry` 的 puller/pusher，源和目标各带各的认证。MySQL 存登录信息（AES-GCM）、目标仓库、任务和同步记录。单元测试使用假引擎和假存储，不访问真实仓库。
 
-**Tech Stack:** Go 1.21、Cobra、Viper、GORM、MySQL、`github.com/go-chi/chi/v5`、`github.com/google/go-containerregistry`、`html/template`。
+**Tech Stack:** Go 1.25、Cobra、Viper、GORM、MySQL、`github.com/go-chi/chi/v5`、`github.com/google/go-containerregistry`、`html/template`。`go-containerregistry` 使用 `@latest`（当前为 v0.22.1），因此 `go.mod` 的 Go 版本为 1.25.0。
 
 **Spec:** `docs/superpowers/specs/2026-10-08-docker-registry-sync-design.md`
 
