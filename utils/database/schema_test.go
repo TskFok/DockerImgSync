@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
@@ -211,5 +212,88 @@ func TestEnsureTablesRejectsPrefixBeforeLoad(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "MYSQL_PREFIX 只能包含字母、数字和下划线") || called {
 		t.Fatalf("错误 = %v，已查库 = %v", err, called)
+	}
+}
+
+func TestColumnFromRowNormalizesMetadata(t *testing.T) {
+	absent := columnFromRow(columnRow{
+		ColumnName: "name",
+		ColumnType: "varchar(255)",
+		IsNullable: "NO",
+		Extra:      "",
+	})
+	if absent.HasDefault || absent.Nullable || absent.TypeName != "varchar(255)" || absent.AutoIncrement {
+		t.Fatalf("无默认值列 = %+v", absent)
+	}
+	empty := columnFromRow(columnRow{
+		ColumnName:    "dest_repository",
+		ColumnType:    "VARCHAR(255)",
+		IsNullable:    "NO",
+		ColumnDefault: sql.NullString{String: "", Valid: true},
+	})
+	if !empty.HasDefault || empty.DefaultValue != "" || empty.TypeName != "varchar(255)" {
+		t.Fatalf("空字符串默认值 = %+v", empty)
+	}
+	id := columnFromRow(columnRow{
+		ColumnName: "id",
+		ColumnType: "int",
+		IsNullable: "NO",
+		Extra:      "auto_increment",
+	})
+	if !id.AutoIncrement {
+		t.Fatal("应识别 AUTO_INCREMENT")
+	}
+}
+
+func TestAssembleLiveGroupsColumnsIndexesAndForeignKeys(t *testing.T) {
+	exists, live := assembleLive(
+		[]string{"credential", "registry"},
+		[]tableNameRow{{TableName: "credential"}},
+		[]columnRow{
+			{TableName: "credential", ColumnName: "id", ColumnType: "int", IsNullable: "NO", Extra: "auto_increment"},
+			{TableName: "credential", ColumnName: "name", ColumnType: "varchar(255)", IsNullable: "NO"},
+		},
+		[]indexRow{
+			{TableName: "credential", IndexName: "PRIMARY", NonUnique: 0, SeqInIndex: 1, ColumnName: "id"},
+			{TableName: "credential", IndexName: "uk_credential_name", NonUnique: 0, SeqInIndex: 1, ColumnName: "name"},
+		},
+		[]fkRow{
+			{TableName: "registry", ConstraintName: "fk_registry_credential", ColumnName: "credential_id", Ordinal: 1, RefTable: "credential", RefColumn: "id", DeleteRule: "RESTRICT"},
+		},
+	)
+	if !exists["credential"] || exists["registry"] {
+		t.Fatalf("存在性 = %v", exists)
+	}
+	cred := live["credential"]
+	if !cred.Columns["id"].AutoIncrement || len(cred.PrimaryKey) != 1 || cred.PrimaryKey[0] != "id" {
+		t.Fatalf("credential = %+v", cred)
+	}
+	if _, ok := cred.Indexes["PRIMARY"]; ok {
+		t.Fatal("主键不应进入普通索引")
+	}
+	if !cred.Indexes["uk_credential_name"].Unique || cred.Indexes["uk_credential_name"].Columns[0] != "name" {
+		t.Fatalf("索引 = %+v", cred.Indexes["uk_credential_name"])
+	}
+	fk := live["registry"].ForeignKeys["fk_registry_credential"]
+	if fk.RefTable != "credential" || fk.OnDelete != "RESTRICT" || fk.Columns[0] != "credential_id" {
+		t.Fatalf("外键 = %+v", fk)
+	}
+}
+
+func TestLiveSchemaQueriesAreBatched(t *testing.T) {
+	if len(liveSchemaQueries) != 4 {
+		t.Fatalf("查询数量 = %d，期望 4", len(liveSchemaQueries))
+	}
+	joined := strings.ToLower(strings.Join(liveSchemaQueries, "\n"))
+	for _, frag := range []string{
+		"information_schema.tables",
+		"information_schema.columns",
+		"information_schema.statistics",
+		"referential_constraints",
+		"table_name in ?",
+	} {
+		if !strings.Contains(joined, frag) {
+			t.Errorf("批量查询缺少 %s", frag)
+		}
 	}
 }

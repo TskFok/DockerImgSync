@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"unicode"
@@ -28,12 +29,170 @@ type schemaProbe struct {
 func EnsureTables(db *gorm.DB, prefix string) (SchemaResult, error) {
 	return ensureTables(prefix, schemaProbe{
 		load: func(tables []string) (map[string]bool, map[string]liveTable, error) {
-			return nil, nil, fmt.Errorf("读取表结构失败: 尚未查询 information_schema")
+			return loadLive(db, tables)
 		},
 		exec: func(stmt string) error {
 			return db.Exec(stmt).Error
 		},
 	})
+}
+
+const (
+	sqlExistingTables = `
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = DATABASE() AND table_name IN ?`
+
+	sqlColumns = `
+SELECT table_name, column_name, column_type, is_nullable, column_default, extra
+FROM information_schema.COLUMNS
+WHERE table_schema = DATABASE() AND table_name IN ?`
+
+	sqlIndexes = `
+SELECT table_name, index_name, non_unique, seq_in_index, column_name
+FROM information_schema.STATISTICS
+WHERE table_schema = DATABASE() AND table_name IN ?
+ORDER BY table_name, index_name, seq_in_index`
+
+	sqlForeignKeys = `
+SELECT k.table_name, k.constraint_name, k.column_name, k.ordinal_position,
+       k.referenced_table_name, k.referenced_column_name, r.delete_rule
+FROM information_schema.KEY_COLUMN_USAGE k
+JOIN information_schema.REFERENTIAL_CONSTRAINTS r
+  ON r.constraint_schema = k.constraint_schema
+ AND r.table_name = k.table_name
+ AND r.constraint_name = k.constraint_name
+WHERE k.table_schema = DATABASE()
+  AND k.referenced_table_name IS NOT NULL
+  AND k.table_name IN ?
+ORDER BY k.table_name, k.constraint_name, k.ordinal_position`
+)
+
+var liveSchemaQueries = []string{sqlExistingTables, sqlColumns, sqlIndexes, sqlForeignKeys}
+
+type tableNameRow struct {
+	TableName string `gorm:"column:table_name"`
+}
+
+type columnRow struct {
+	TableName     string         `gorm:"column:table_name"`
+	ColumnName    string         `gorm:"column:column_name"`
+	ColumnType    string         `gorm:"column:column_type"`
+	IsNullable    string         `gorm:"column:is_nullable"`
+	ColumnDefault sql.NullString `gorm:"column:column_default"`
+	Extra         string         `gorm:"column:extra"`
+}
+
+type indexRow struct {
+	TableName  string `gorm:"column:table_name"`
+	IndexName  string `gorm:"column:index_name"`
+	NonUnique  int64  `gorm:"column:non_unique"`
+	SeqInIndex int64  `gorm:"column:seq_in_index"`
+	ColumnName string `gorm:"column:column_name"`
+}
+
+type fkRow struct {
+	TableName      string `gorm:"column:table_name"`
+	ConstraintName string `gorm:"column:constraint_name"`
+	ColumnName     string `gorm:"column:column_name"`
+	Ordinal        int64  `gorm:"column:ordinal_position"`
+	RefTable       string `gorm:"column:referenced_table_name"`
+	RefColumn      string `gorm:"column:referenced_column_name"`
+	DeleteRule     string `gorm:"column:delete_rule"`
+}
+
+func loadLive(db *gorm.DB, tables []string) (map[string]bool, map[string]liveTable, error) {
+	var present []tableNameRow
+	if err := db.Raw(sqlExistingTables, tables).Scan(&present).Error; err != nil {
+		return nil, nil, fmt.Errorf("检查数据表失败: %w", err)
+	}
+	var cols []columnRow
+	if err := db.Raw(sqlColumns, tables).Scan(&cols).Error; err != nil {
+		return nil, nil, fmt.Errorf("读取表结构失败: %w", err)
+	}
+	var indexes []indexRow
+	if err := db.Raw(sqlIndexes, tables).Scan(&indexes).Error; err != nil {
+		return nil, nil, fmt.Errorf("读取表结构失败: %w", err)
+	}
+	var fks []fkRow
+	if err := db.Raw(sqlForeignKeys, tables).Scan(&fks).Error; err != nil {
+		return nil, nil, fmt.Errorf("读取表结构失败: %w", err)
+	}
+	exists, live := assembleLive(tables, present, cols, indexes, fks)
+	return exists, live, nil
+}
+
+func columnFromRow(row columnRow) liveColumn {
+	return liveColumn{
+		Name:          row.ColumnName,
+		TypeName:      strings.ToLower(row.ColumnType),
+		Nullable:      strings.EqualFold(row.IsNullable, "YES"),
+		HasDefault:    row.ColumnDefault.Valid,
+		DefaultValue:  row.ColumnDefault.String,
+		AutoIncrement: strings.Contains(strings.ToLower(row.Extra), "auto_increment"),
+	}
+}
+
+func assembleLive(want []string, present []tableNameRow, cols []columnRow, indexes []indexRow, fks []fkRow) (map[string]bool, map[string]liveTable) {
+	exists := map[string]bool{}
+	live := map[string]liveTable{}
+	for _, name := range want {
+		exists[name] = false
+		live[name] = newLiveTable()
+	}
+	for _, row := range present {
+		if _, ok := exists[row.TableName]; ok {
+			exists[row.TableName] = true
+		}
+	}
+	for _, row := range cols {
+		table, ok := live[row.TableName]
+		if !ok {
+			continue
+		}
+		table.Columns[row.ColumnName] = columnFromRow(row)
+		live[row.TableName] = table
+	}
+	for _, row := range indexes {
+		table, ok := live[row.TableName]
+		if !ok {
+			continue
+		}
+		if strings.EqualFold(row.IndexName, "PRIMARY") {
+			table.PrimaryKey = append(table.PrimaryKey, row.ColumnName)
+			live[row.TableName] = table
+			continue
+		}
+		idx := table.Indexes[row.IndexName]
+		idx.Name = row.IndexName
+		idx.Unique = row.NonUnique == 0
+		idx.Columns = append(idx.Columns, row.ColumnName)
+		table.Indexes[row.IndexName] = idx
+		live[row.TableName] = table
+	}
+	for _, row := range fks {
+		table, ok := live[row.TableName]
+		if !ok {
+			continue
+		}
+		fk := table.ForeignKeys[row.ConstraintName]
+		fk.Name = row.ConstraintName
+		fk.Columns = append(fk.Columns, row.ColumnName)
+		fk.RefTable = row.RefTable
+		fk.RefColumns = append(fk.RefColumns, row.RefColumn)
+		fk.OnDelete = strings.ToUpper(row.DeleteRule)
+		table.ForeignKeys[row.ConstraintName] = fk
+		live[row.TableName] = table
+	}
+	return exists, live
+}
+
+func newLiveTable() liveTable {
+	return liveTable{
+		Columns:     map[string]liveColumn{},
+		Indexes:     map[string]liveIndex{},
+		ForeignKeys: map[string]liveForeignKey{},
+	}
 }
 
 func ensureTables(prefix string, probe schemaProbe) (SchemaResult, error) {
