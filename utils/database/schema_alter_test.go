@@ -98,3 +98,105 @@ func matchingLive(spec tableSpec) liveTable {
 	}
 	return live
 }
+
+func TestAlterAddsMissingIndexAndForeignKey(t *testing.T) {
+	tables, err := desiredTables("img_")
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	reg := tables[1]
+	live := matchingLive(reg)
+	delete(live.Indexes, "uk_registry_name")
+	delete(live.ForeignKeys, "fk_registry_credential")
+	live.Indexes["idx_extra"] = liveIndex{Name: "idx_extra", Columns: []string{"address"}}
+	live.ForeignKeys["fk_legacy"] = liveForeignKey{Name: "fk_legacy", Columns: []string{"address"}, RefTable: "credential", RefColumns: []string{"id"}, OnDelete: "RESTRICT"}
+
+	stmt, ok := renderAlter(reg.Name, diffTable(reg, live))
+	if !ok {
+		t.Fatal("应生成 ALTER")
+	}
+	if !strings.Contains(stmt, "ADD UNIQUE KEY `uk_registry_name` (`name`)") {
+		t.Fatalf("缺少索引: %s", stmt)
+	}
+	if !strings.Contains(stmt, "ADD CONSTRAINT `fk_registry_credential` FOREIGN KEY (`credential_id`) REFERENCES `img_credential` (`id`) ON DELETE RESTRICT") {
+		t.Fatalf("缺少外键: %s", stmt)
+	}
+	if strings.Contains(stmt, "idx_extra") || strings.Contains(stmt, "fk_legacy") || strings.Contains(stmt, "DROP INDEX") || strings.Contains(stmt, "DROP FOREIGN KEY") {
+		t.Fatalf("不应删除缺失重建之外的对象: %s", stmt)
+	}
+}
+
+func TestAlterRecreatesIndexWhenColumnsDiffer(t *testing.T) {
+	tables, err := desiredTables("")
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	reg := tables[1]
+	live := matchingLive(reg)
+	live.Indexes["uk_registry_name"] = liveIndex{Name: "uk_registry_name", Unique: true, Columns: []string{"address"}}
+
+	stmt, ok := renderAlter(reg.Name, diffTable(reg, live))
+	if !ok {
+		t.Fatal("应生成 ALTER")
+	}
+	dropAt := strings.Index(stmt, "DROP INDEX `uk_registry_name`")
+	addAt := strings.Index(stmt, "ADD UNIQUE KEY `uk_registry_name` (`name`)")
+	if dropAt < 0 || addAt < 0 || dropAt > addAt {
+		t.Fatalf("应先删同名索引再重建: %s", stmt)
+	}
+}
+
+func TestAlterRecreatesForeignKeyWhenColumnChanges(t *testing.T) {
+	tables, err := desiredTables("")
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	reg := tables[1]
+	live := matchingLive(reg)
+	col := live.Columns["credential_id"]
+	col.TypeName = "bigint"
+	live.Columns["credential_id"] = col
+
+	stmt, ok := renderAlter(reg.Name, diffTable(reg, live))
+	if !ok {
+		t.Fatal("应生成 ALTER")
+	}
+	dropAt := strings.Index(stmt, "DROP FOREIGN KEY `fk_registry_credential`")
+	modAt := strings.Index(stmt, "MODIFY COLUMN `credential_id` int NOT NULL")
+	addAt := strings.Index(stmt, "ADD CONSTRAINT `fk_registry_credential`")
+	if dropAt < 0 || modAt < 0 || addAt < 0 || !(dropAt < modAt && modAt < addAt) {
+		t.Fatalf("外键、改列、重建外键的顺序不对: %s", stmt)
+	}
+}
+
+func TestAlterRecreatesPrimaryKeyAndIndexOnModifiedColumn(t *testing.T) {
+	tables, err := desiredTables("")
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	cred := tables[0]
+	live := matchingLive(cred)
+	id := live.Columns["id"]
+	id.TypeName = "bigint"
+	live.Columns["id"] = id
+	name := live.Columns["name"]
+	name.TypeName = "varchar(64)"
+	live.Columns["name"] = name
+
+	stmt, ok := renderAlter(cred.Name, diffTable(cred, live))
+	if !ok {
+		t.Fatal("应生成 ALTER")
+	}
+	dropPK := strings.Index(stmt, "DROP PRIMARY KEY")
+	modID := strings.Index(stmt, "MODIFY COLUMN `id` int NOT NULL AUTO_INCREMENT")
+	addPK := strings.Index(stmt, "ADD PRIMARY KEY (`id`)")
+	dropIdx := strings.Index(stmt, "DROP INDEX `uk_credential_name`")
+	modName := strings.Index(stmt, "MODIFY COLUMN `name` varchar(255) NOT NULL")
+	addIdx := strings.Index(stmt, "ADD UNIQUE KEY `uk_credential_name` (`name`)")
+	if dropPK < 0 || modID < 0 || addPK < 0 || dropIdx < 0 || modName < 0 || addIdx < 0 {
+		t.Fatalf("主键或索引未随列修改重建: %s", stmt)
+	}
+	if !(dropPK < modID && modID < addPK && dropIdx < modName && modName < addIdx) {
+		t.Fatalf("删除、修改、重建的顺序不对: %s", stmt)
+	}
+}
