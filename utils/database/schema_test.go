@@ -5,6 +5,10 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
 func TestSchemaStatementsAddsPrefixAndSkipsExisting(t *testing.T) {
@@ -295,5 +299,89 @@ func TestLiveSchemaQueriesAreBatched(t *testing.T) {
 		if !strings.Contains(joined, frag) {
 			t.Errorf("批量查询缺少 %s", frag)
 		}
+	}
+	// MySQL 对 information_schema 的列名返回大写，必须显式小写别名才能匹配 gorm 列标签。
+	for _, column := range []string{
+		"table_name", "column_name", "column_type", "is_nullable", "column_default",
+		"extra", "index_name", "non_unique", "seq_in_index", "constraint_name",
+		"ordinal_position", "referenced_table_name", "referenced_column_name", "delete_rule",
+	} {
+		if !strings.Contains(joined, " as "+column) {
+			t.Errorf("批量查询缺少小写别名 AS %s", column)
+		}
+	}
+}
+
+func newMockGorm(t *testing.T) (*gorm.DB, sqlmock.Sqlmock) {
+	t.Helper()
+	sqlDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("创建 sqlmock 失败: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("打开 gorm 失败: %v", err)
+	}
+	return db, mock
+}
+
+func TestLoadLiveScansLowercaseAliasedColumns(t *testing.T) {
+	db, mock := newMockGorm(t)
+	tables := []string{"credential"}
+
+	mock.ExpectQuery("information_schema.tables").
+		WillReturnRows(sqlmock.NewRows([]string{"table_name"}).AddRow("credential"))
+	mock.ExpectQuery("information_schema.COLUMNS").
+		WillReturnRows(sqlmock.NewRows([]string{"table_name", "column_name", "column_type", "is_nullable", "column_default", "extra"}).
+			AddRow("credential", "id", "int", "NO", nil, "auto_increment"))
+	mock.ExpectQuery("information_schema.STATISTICS").
+		WillReturnRows(sqlmock.NewRows([]string{"table_name", "index_name", "non_unique", "seq_in_index", "column_name"}).
+			AddRow("credential", "PRIMARY", 0, 1, "id"))
+	mock.ExpectQuery("information_schema.KEY_COLUMN_USAGE").
+		WillReturnRows(sqlmock.NewRows([]string{"table_name", "constraint_name", "column_name", "ordinal_position", "referenced_table_name", "referenced_column_name", "delete_rule"}))
+
+	exists, live, err := loadLive(db, tables)
+	if err != nil {
+		t.Fatalf("读取失败: %v", err)
+	}
+	if !exists["credential"] {
+		t.Fatalf("credential 应存在: %v", exists)
+	}
+	cred := live["credential"]
+	id := cred.Columns["id"]
+	if id.TypeName != "int" || !id.AutoIncrement {
+		t.Fatalf("id 列 = %+v", id)
+	}
+	if len(cred.PrimaryKey) != 1 || cred.PrimaryKey[0] != "id" {
+		t.Fatalf("主键 = %v", cred.PrimaryKey)
+	}
+	if _, ok := cred.Indexes["PRIMARY"]; ok {
+		t.Fatal("PRIMARY 不应作为普通索引保存")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("四条查询应按顺序各执行一次: %v", err)
+	}
+}
+
+func TestLoadLiveFirstQueryErrorIsTableCheckFailure(t *testing.T) {
+	db, mock := newMockGorm(t)
+	mock.ExpectQuery("information_schema.tables").WillReturnError(errors.New("db down"))
+
+	_, _, err := loadLive(db, []string{"credential"})
+	if err == nil || !strings.Contains(err.Error(), "检查数据表失败") || strings.Contains(err.Error(), "读取表结构失败") {
+		t.Fatalf("错误 = %v", err)
+	}
+}
+
+func TestLoadLiveSecondQueryErrorIsStructureReadFailure(t *testing.T) {
+	db, mock := newMockGorm(t)
+	mock.ExpectQuery("information_schema.tables").
+		WillReturnRows(sqlmock.NewRows([]string{"table_name"}).AddRow("credential"))
+	mock.ExpectQuery("information_schema.COLUMNS").WillReturnError(errors.New("denied"))
+
+	_, _, err := loadLive(db, []string{"credential"})
+	if err == nil || !strings.Contains(err.Error(), "读取表结构失败") || strings.Contains(err.Error(), "检查数据表失败") {
+		t.Fatalf("错误 = %v", err)
 	}
 }

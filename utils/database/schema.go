@@ -37,26 +37,31 @@ func EnsureTables(db *gorm.DB, prefix string) (SchemaResult, error) {
 	})
 }
 
+// information_schema 的结果列名在 MySQL 中是大写，gorm 按列标签区分大小写匹配，
+// 所以每个查询列都显式起小写别名，和下面 row 结构体的 gorm 列标签一致。
 const (
 	sqlExistingTables = `
-SELECT table_name
+SELECT table_name AS table_name
 FROM information_schema.tables
 WHERE table_schema = DATABASE() AND table_name IN ?`
 
 	sqlColumns = `
-SELECT table_name, column_name, column_type, is_nullable, column_default, extra
+SELECT table_name AS table_name, column_name AS column_name, column_type AS column_type,
+       is_nullable AS is_nullable, column_default AS column_default, extra AS extra
 FROM information_schema.COLUMNS
 WHERE table_schema = DATABASE() AND table_name IN ?`
 
 	sqlIndexes = `
-SELECT table_name, index_name, non_unique, seq_in_index, column_name
+SELECT table_name AS table_name, index_name AS index_name, non_unique AS non_unique,
+       seq_in_index AS seq_in_index, column_name AS column_name
 FROM information_schema.STATISTICS
 WHERE table_schema = DATABASE() AND table_name IN ?
 ORDER BY table_name, index_name, seq_in_index`
 
 	sqlForeignKeys = `
-SELECT k.table_name, k.constraint_name, k.column_name, k.ordinal_position,
-       k.referenced_table_name, k.referenced_column_name, r.delete_rule
+SELECT k.table_name AS table_name, k.constraint_name AS constraint_name, k.column_name AS column_name,
+       k.ordinal_position AS ordinal_position, k.referenced_table_name AS referenced_table_name,
+       k.referenced_column_name AS referenced_column_name, r.delete_rule AS delete_rule
 FROM information_schema.KEY_COLUMN_USAGE k
 JOIN information_schema.REFERENTIAL_CONSTRAINTS r
   ON r.constraint_schema = k.constraint_schema
@@ -101,22 +106,20 @@ type fkRow struct {
 	DeleteRule     string `gorm:"column:delete_rule"`
 }
 
+// loadLive 按 liveSchemaQueries 的顺序固定执行四条查询，不随表数量增加。
 func loadLive(db *gorm.DB, tables []string) (map[string]bool, map[string]liveTable, error) {
 	var present []tableNameRow
-	if err := db.Raw(sqlExistingTables, tables).Scan(&present).Error; err != nil {
-		return nil, nil, fmt.Errorf("检查数据表失败: %w", err)
-	}
 	var cols []columnRow
-	if err := db.Raw(sqlColumns, tables).Scan(&cols).Error; err != nil {
-		return nil, nil, fmt.Errorf("读取表结构失败: %w", err)
-	}
 	var indexes []indexRow
-	if err := db.Raw(sqlIndexes, tables).Scan(&indexes).Error; err != nil {
-		return nil, nil, fmt.Errorf("读取表结构失败: %w", err)
-	}
 	var fks []fkRow
-	if err := db.Raw(sqlForeignKeys, tables).Scan(&fks).Error; err != nil {
-		return nil, nil, fmt.Errorf("读取表结构失败: %w", err)
+	dests := []interface{}{&present, &cols, &indexes, &fks}
+	for i, query := range liveSchemaQueries {
+		if err := db.Raw(query, tables).Scan(dests[i]).Error; err != nil {
+			if i == 0 {
+				return nil, nil, fmt.Errorf("检查数据表失败: %w", err)
+			}
+			return nil, nil, fmt.Errorf("读取表结构失败: %w", err)
+		}
 	}
 	exists, live := assembleLive(tables, present, cols, indexes, fks)
 	return exists, live, nil
