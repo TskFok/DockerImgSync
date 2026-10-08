@@ -19,7 +19,7 @@ openssl rand -base64 32
 
 ## 建表
 
-按 `sql/schema.sql` 建表。文件里的表名不带前缀。若 `MYSQL_PREFIX` 非空，建表时给每张表加上同一个前缀。
+`./cli serve` 启动时会检查数据表。缺少的表按 `sql/schema.sql` 自动创建，已有的表不会修改。文件里的表名不带前缀。若 `MYSQL_PREFIX` 非空，自动建表时给每张表加上同一个前缀。
 
 ## 启动
 

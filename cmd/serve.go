@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/TskFok/DockerImgSync/app/global"
 	syncsvc "github.com/TskFok/DockerImgSync/service/sync"
 	"github.com/TskFok/DockerImgSync/service/web"
+	"github.com/TskFok/DockerImgSync/utils/database"
 	"github.com/spf13/cobra"
 )
 
@@ -18,6 +20,14 @@ var serveCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		created, err := database.EnsureTables(global.DataBase, global.MysqlPrefix)
+		if err != nil {
+			fmt.Println(err.Error())
+			os.Exit(1)
+		}
+		if len(created) > 0 {
+			fmt.Printf("已创建数据表: %s\n", strings.Join(created, ", "))
+		}
 		engine := syncsvc.NewCrane()
 		syncStore := syncsvc.NewMySQLStore(global.DataBase, global.CredentialKey)
 		sched := syncsvc.NewScheduler(syncStore, engine)
