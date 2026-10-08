@@ -6,16 +6,42 @@ https://github.com/togettoyou/hub-mirror
 fork一个项目做好前置准备
 
 配置文件
-填写docker账号密码
-填写github的token,host填写https://api.github.com/repos/****/hub-mirror/issues,****是用户名
-如果网络受限可以添加proxy
+
+打包后，在二进制文件同目录放置 `.env`（可复制仓库根目录的 `.env.example`）。程序只读取该文件，不再把配置编译进二进制。
+
+```
+MYSQL_DSN=
+MYSQL_PREFIX=
+DOCKER_HOST=https://hub.docker.com
+DOCKER_USERNAME=
+DOCKER_PASSWORD=
+GITHUB_HOST=
+GITHUB_TOKEN=
+PROXY_HOST=
+REDIS_HOST=127.0.0.1:6379
+REDIS_USER=
+REDIS_PASSWORD=
+```
+
+填写 docker 账号密码。
+`GITHUB_HOST` 填写 `https://api.github.com/repos/****/hub-mirror/issues`，`****` 是用户名，并填写 `GITHUB_TOKEN`。
+如果网络受限，可以填写 `PROXY_HOST`。
+含特殊字符的值请用双引号包裹。
 
 使用方法
 
-更新指定任务:
-go run bin/cli/main.go sync:task --namespace="linuxserver" --repository="jackett" --tag="latest" --from="lscr.io"
-更新已有的全部任务
-go run bin/cli/main.go sync:task --all=1
+先编译，并把 `.env` 放在生成的二进制旁边：
+
+```
+make build-cli-mac
+./cli sync:task --namespace="linuxserver" --repository="jackett" --tag="latest" --from="lscr.io"
+```
+
+更新已有的全部任务：
+
+```
+./cli sync:task --all=1
+```
 ``````
 
 ``````

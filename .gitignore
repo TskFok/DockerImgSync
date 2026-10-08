@@ -1,3 +1,4 @@
 utils/conf/conf.yaml.local
+.env
 cli
 .idea
