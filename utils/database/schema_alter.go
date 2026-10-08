@@ -129,8 +129,39 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
+// normalizeColumnType 去掉整数类型的显示宽度，便于与 schema 中的裸类型比较；保留 unsigned 与非整数长度。
+func normalizeColumnType(raw string) string {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	paren := strings.IndexByte(s, '(')
+	if paren < 0 {
+		return s
+	}
+	base := s[:paren]
+	switch base {
+	case "tinyint", "smallint", "mediumint", "int", "bigint":
+	default:
+		return s
+	}
+	close := strings.IndexByte(s[paren:], ')')
+	if close < 0 {
+		return s
+	}
+	close += paren
+	inner := s[paren+1 : close]
+	for _, r := range inner {
+		if r < '0' || r > '9' {
+			return s
+		}
+	}
+	tail := strings.TrimSpace(s[close+1:])
+	if tail == "" {
+		return base
+	}
+	return base + " " + tail
+}
+
 func columnEqual(want columnSpec, have liveColumn) bool {
-	if want.TypeName != have.TypeName || want.Nullable != have.Nullable || want.AutoIncrement != have.AutoIncrement {
+	if normalizeColumnType(want.TypeName) != normalizeColumnType(have.TypeName) || want.Nullable != have.Nullable || want.AutoIncrement != have.AutoIncrement {
 		return false
 	}
 	if want.HasDefault != have.HasDefault {

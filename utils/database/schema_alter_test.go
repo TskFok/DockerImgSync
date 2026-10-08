@@ -1,9 +1,99 @@
 package database
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 )
+
+func mysqlDisplayColumnType(typeName, columnName string) string {
+	switch typeName {
+	case "tinyint":
+		if columnName == "enabled" {
+			return "tinyint(1)"
+		}
+		return "tinyint(4)"
+	case "smallint":
+		return "smallint(6)"
+	case "mediumint":
+		return "mediumint(9)"
+	case "int":
+		return "int(11)"
+	case "bigint":
+		return "bigint(20)"
+	default:
+		return typeName
+	}
+}
+
+func liveRowsMySQLStyle(tables []tableSpec) (names []string, present []tableNameRow, cols []columnRow, indexes []indexRow, fks []fkRow) {
+	for _, table := range tables {
+		names = append(names, table.Name)
+		present = append(present, tableNameRow{TableName: table.Name})
+		for _, col := range table.Columns {
+			row := columnRow{
+				TableName:  table.Name,
+				ColumnName: col.Name,
+				ColumnType: mysqlDisplayColumnType(col.TypeName, col.Name),
+				IsNullable: "NO",
+			}
+			if col.Nullable {
+				row.IsNullable = "YES"
+			}
+			if col.AutoIncrement {
+				row.Extra = "auto_increment"
+			}
+			if col.HasDefault {
+				row.ColumnDefault = sql.NullString{String: col.DefaultValue, Valid: true}
+			}
+			cols = append(cols, row)
+		}
+		for seq, pkCol := range table.PrimaryKey {
+			indexes = append(indexes, indexRow{
+				TableName: table.Name, IndexName: "PRIMARY", NonUnique: 0,
+				SeqInIndex: int64(seq + 1), ColumnName: pkCol,
+			})
+		}
+		for _, idx := range table.Indexes {
+			nonUnique := int64(1)
+			if idx.Unique {
+				nonUnique = 0
+			}
+			for seq, colName := range idx.Columns {
+				indexes = append(indexes, indexRow{
+					TableName: table.Name, IndexName: idx.Name, NonUnique: nonUnique,
+					SeqInIndex: int64(seq + 1), ColumnName: colName,
+				})
+			}
+		}
+		for _, fk := range table.ForeignKeys {
+			for ord, colName := range fk.Columns {
+				fks = append(fks, fkRow{
+					TableName: table.Name, ConstraintName: fk.Name, ColumnName: colName,
+					Ordinal: int64(ord + 1), RefTable: fk.RefTable, RefColumn: fk.RefColumns[ord],
+					DeleteRule: fk.OnDelete,
+				})
+			}
+		}
+	}
+	return names, present, cols, indexes, fks
+}
+
+func TestDiffTableNoAlterWhenMySQLIntegerDisplayWidths(t *testing.T) {
+	tables, err := desiredTables("")
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	names, present, cols, indexes, fks := liveRowsMySQLStyle(tables)
+	_, live := assembleLive(names, present, cols, indexes, fks)
+	for _, spec := range tables {
+		alt := diffTable(spec, live[spec.Name])
+		stmt, ok := renderAlter(spec.Name, alt)
+		if ok || stmt != "" {
+			t.Fatalf("表 %s 不应生成 ALTER: ok=%v stmt=%q diff=%+v", spec.Name, ok, stmt, alt)
+		}
+	}
+}
 
 func TestAlterAddsAndModifiesColumnsWithoutDroppingExtras(t *testing.T) {
 	tables, err := desiredTables("")

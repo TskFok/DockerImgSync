@@ -128,7 +128,7 @@ func loadLive(db *gorm.DB, tables []string) (map[string]bool, map[string]liveTab
 func columnFromRow(row columnRow) liveColumn {
 	return liveColumn{
 		Name:          row.ColumnName,
-		TypeName:      strings.ToLower(row.ColumnType),
+		TypeName:      normalizeColumnType(row.ColumnType),
 		Nullable:      strings.EqualFold(row.IsNullable, "YES"),
 		HasDefault:    row.ColumnDefault.Valid,
 		DefaultValue:  row.ColumnDefault.String,

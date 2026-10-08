@@ -219,6 +219,25 @@ func TestEnsureTablesRejectsPrefixBeforeLoad(t *testing.T) {
 	}
 }
 
+func TestNormalizeColumnTypeStripsIntegerDisplayWidth(t *testing.T) {
+	cases := map[string]string{
+		"int(11)":       "int",
+		"INT(11)":       "int",
+		"tinyint(4)":    "tinyint",
+		"tinyint(1)":    "tinyint",
+		"bigint(20)":    "bigint",
+		"int":           "int",
+		"varchar(255)":  "varchar(255)",
+		"decimal(10,2)": "decimal(10,2)",
+		"int(11) unsigned": "int unsigned",
+	}
+	for in, want := range cases {
+		if got := normalizeColumnType(in); got != want {
+			t.Errorf("normalizeColumnType(%q) = %q，期望 %q", in, got, want)
+		}
+	}
+}
+
 func TestColumnFromRowNormalizesMetadata(t *testing.T) {
 	absent := columnFromRow(columnRow{
 		ColumnName: "name",
