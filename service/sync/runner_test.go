@@ -11,6 +11,7 @@ import (
 type fakeEngine struct {
 	digest    string
 	digestErr error
+	copyErr   error
 	copyCount int
 	dst       string
 	srcAuth   *Auth
@@ -27,7 +28,7 @@ func (f *fakeEngine) Copy(ctx context.Context, src, dst string, srcAuth, dstAuth
 	f.dst = dst
 	f.srcAuth = srcAuth
 	f.dstAuth = dstAuth
-	return nil
+	return f.copyErr
 }
 
 func fixed(t time.Time) func() time.Time {
@@ -93,6 +94,25 @@ func TestRunRequiresDestAuth(t *testing.T) {
 	got := Run(context.Background(), eng, Task{SourceImage: "nginx:latest"}, fixed(time.Unix(100, 0)))
 	if got.Status != "failed" || got.Message != "目标仓库缺少登录信息" || eng.copyCount != 0 {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestRunSchedulesNextRunAfterCopyFailure(t *testing.T) {
+	eng := &fakeEngine{digest: "sha256:new", copyErr: errors.New("copy failed")}
+	now := time.Unix(100, 0)
+	got := Run(context.Background(), eng, Task{
+		SourceImage:       "nginx:latest",
+		RegistryAddress:   "registry.example.com",
+		RegistryNamespace: "ns",
+		DestAuth:          &Auth{Username: "dest-user"},
+		LastDigest:        "sha256:old",
+		IntervalSeconds:   60,
+	}, fixed(now))
+	if got.Status != "failed" || got.LastDigest != "sha256:old" || got.ObservedDigest != "sha256:new" || eng.copyCount != 1 {
+		t.Fatalf("got %+v copy %d", got, eng.copyCount)
+	}
+	if got.NextRunAt == nil || !got.NextRunAt.Equal(got.FinishedAt.Add(60*time.Second)) {
+		t.Fatalf("next run %+v finished %+v", got.NextRunAt, got.FinishedAt)
 	}
 }
 

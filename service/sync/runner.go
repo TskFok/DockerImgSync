@@ -30,20 +30,26 @@ type Result struct {
 	FinishedAt     time.Time
 }
 
-func Run(ctx context.Context, eng Engine, task Task, now func() time.Time) Result {
+func Run(ctx context.Context, eng Engine, task Task, now func() time.Time) (result Result) {
 	if now == nil {
 		now = time.Now
 	}
-	startedAt := now()
-	result := Result{
+	result = Result{
 		LastDigest: task.LastDigest,
-		StartedAt:  startedAt,
+		StartedAt:  now(),
 	}
+
+	defer func() {
+		result.FinishedAt = now()
+		if task.IntervalSeconds > 0 {
+			next := result.FinishedAt.Add(time.Duration(task.IntervalSeconds) * time.Second)
+			result.NextRunAt = &next
+		}
+	}()
 
 	if task.DestAuth == nil {
 		result.Status = "failed"
 		result.Message = "目标仓库缺少登录信息"
-		result.FinishedAt = now()
 		return result
 	}
 
@@ -51,7 +57,6 @@ func Run(ctx context.Context, eng Engine, task Task, now func() time.Time) Resul
 	if err != nil {
 		result.Status = "failed"
 		result.Message = safeMessage(err, task.SourceAuth, task.DestAuth)
-		result.FinishedAt = now()
 		return result
 	}
 
@@ -68,7 +73,6 @@ func Run(ctx context.Context, eng Engine, task Task, now func() time.Time) Resul
 	if err != nil {
 		result.Status = "failed"
 		result.Message = safeMessage(err, task.SourceAuth, task.DestAuth)
-		result.FinishedAt = now()
 		return result
 	}
 
@@ -76,7 +80,6 @@ func Run(ctx context.Context, eng Engine, task Task, now func() time.Time) Resul
 	if err != nil {
 		result.Status = "failed"
 		result.Message = safeMessage(err, task.SourceAuth, task.DestAuth)
-		result.FinishedAt = now()
 		return result
 	}
 	result.ObservedDigest = digest
@@ -84,29 +87,18 @@ func Run(ctx context.Context, eng Engine, task Task, now func() time.Time) Resul
 	if digest == task.LastDigest {
 		result.Status = "skipped"
 		result.Message = "无变化"
-		result.FinishedAt = now()
-		if task.IntervalSeconds > 0 {
-			next := result.FinishedAt.Add(time.Duration(task.IntervalSeconds) * time.Second)
-			result.NextRunAt = &next
-		}
 		return result
 	}
 
 	if err := eng.Copy(ctx, normalized, dst, task.SourceAuth, task.DestAuth); err != nil {
 		result.Status = "failed"
 		result.Message = safeMessage(err, task.SourceAuth, task.DestAuth)
-		result.FinishedAt = now()
 		return result
 	}
 
 	result.Status = "success"
 	result.LastDigest = digest
 	result.Message = ""
-	result.FinishedAt = now()
-	if task.IntervalSeconds > 0 {
-		next := result.FinishedAt.Add(time.Duration(task.IntervalSeconds) * time.Second)
-		result.NextRunAt = &next
-	}
 	return result
 }
 
