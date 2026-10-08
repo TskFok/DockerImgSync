@@ -1,77 +1,39 @@
-# 同步docker镜像到自己的仓库
+# Docker 镜像仓库同步
 
-``````
-根据
-https://github.com/togettoyou/hub-mirror
-fork一个项目做好前置准备
+单个进程提供登录页面和定时同步，用仓库协议把镜像复制到目标仓库。不依赖本机 Docker、GitHub 或 Redis。
 
-配置文件
+## 配置
 
-打包后，在二进制文件同目录放置 `.env`（可复制仓库根目录的 `.env.example`）。程序只读取该文件，不再把配置编译进二进制。
+1. 复制仓库根目录的 `.env.example`，保存为**打包后二进制文件同目录**下的 `.env`。程序只读取该文件。
+2. 填写 `MYSQL_DSN`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`。
+3. `SESSION_SECRET` 至少 32 个字符，用于签名会话 cookie。
+4. `CREDENTIAL_KEY` 请在本地生成，不要把真实密钥写进文档或提交到仓库：
 
 ```
-MYSQL_DSN=
-MYSQL_PREFIX=
-DOCKER_HOST=https://hub.docker.com
-DOCKER_USERNAME=
-DOCKER_PASSWORD=
-GITHUB_HOST=
-GITHUB_TOKEN=
-PROXY_HOST=
-REDIS_HOST=127.0.0.1:6379
-REDIS_USER=
-REDIS_PASSWORD=
+openssl rand -base64 32
 ```
 
-填写 docker 账号密码。
-`GITHUB_HOST` 填写 `https://api.github.com/repos/****/hub-mirror/issues`，`****` 是用户名，并填写 `GITHUB_TOKEN`。
-如果网络受限，可以填写 `PROXY_HOST`。
-含特殊字符的值请用双引号包裹。
+解码后必须是 32 字节的标准 base64。`HTTP_ADDR` 可留空，默认 `:8080`。含特殊字符的值请用双引号包裹。
 
-使用方法
+需要访问外网时设置环境变量 `HTTPS_PROXY`，不要再写 `PROXY_HOST`。
 
-先编译，并把 `.env` 放在生成的二进制旁边：
+## 建表
+
+按 `sql/schema.sql` 建表。文件里的表名不带前缀。若 `MYSQL_PREFIX` 非空，建表时给每张表加上同一个前缀。
+
+## 启动
 
 ```
 make build-cli-mac
-./cli sync:task --namespace="linuxserver" --repository="jackett" --tag="latest" --from="lscr.io"
+./cli serve
 ```
 
-更新已有的全部任务：
+浏览器打开 `http://127.0.0.1:8080`，使用 `.env` 中的管理员账号登录。
 
-```
-./cli sync:task --all=1
-```
-``````
+## 使用顺序
 
-``````
-创建数据库sync_task
+1. 先创建登录信息（源仓库或目标仓库的账号）。
+2. 再创建目标仓库。目标仓库必须事先在阿里云控制台建好，本程序不会创建仓库。
+3. 最后创建同步任务。
 
-创建表
-CREATE TABLE `docker_image` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `namespace` varchar(255) NOT NULL COMMENT '命名空间',
-  `repository` varchar(255) NOT NULL COMMENT '仓库名称',
-  `tag` varchar(255) NOT NULL COMMENT '镜像标签',
-  `from` varchar(255) NOT NULL COMMENT '镜像来源',
-  `repository_id` int(11) NOT NULL COMMENT '存储库 ID',
-  `last_updated` datetime NOT NULL COMMENT '上次更新的日期时间',
-  `tag_status` varchar(255) NOT NULL COMMENT '标签在过去一个月内是否被推送或拉取',
-  `created_at` datetime NOT NULL COMMENT '创建时间',
-  `updated_at` datetime NOT NULL COMMENT '修改时间',
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
-CREATE TABLE `issue` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `namespace` varchar(255) NOT NULL COMMENT '命名空间',
-  `repository` varchar(255) NOT NULL COMMENT '仓库名称',
-  `tag` varchar(255) NOT NULL COMMENT '镜像标签',
-  `from` varchar(255) NOT NULL COMMENT '镜像来源',
-  `url` varchar(255) NOT NULL COMMENT '地址',
-  `html_url` varchar(255) NOT NULL COMMENT 'html地址',
-  `created_at` datetime NOT NULL COMMENT '创建时间',
-  `updated_at` datetime NOT NULL COMMENT '修改时间',
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-``````
+公开镜像可以不选源登录信息；私有源从已保存的登录信息里选择。检查间隔为 0 表示只手动同步。
