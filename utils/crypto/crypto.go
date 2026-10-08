@@ -9,10 +9,20 @@ import (
 	"io"
 )
 
+func validateAES256Key(key []byte) error {
+	if len(key) != 32 {
+		return fmt.Errorf("密钥长度必须是 32 字节")
+	}
+	return nil
+}
+
 func Encrypt(key []byte, plaintext string) (string, error) {
+	if err := validateAES256Key(key); err != nil {
+		return "", err
+	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return "", fmt.Errorf("密钥长度必须是 32 字节: %w", err)
+		return "", err
 	}
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
@@ -27,6 +37,9 @@ func Encrypt(key []byte, plaintext string) (string, error) {
 }
 
 func Decrypt(key []byte, encoded string) (string, error) {
+	if err := validateAES256Key(key); err != nil {
+		return "", err
+	}
 	raw, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		return "", err

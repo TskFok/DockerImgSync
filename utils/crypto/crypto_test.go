@@ -39,3 +39,26 @@ func TestEncryptRejectsBadKeyLength(t *testing.T) {
 		t.Fatal("密钥长度不对时应失败")
 	}
 }
+
+func TestEncryptRejectsAES128AndAES192KeyLengths(t *testing.T) {
+	for _, size := range []int{16, 24} {
+		key := bytes.Repeat([]byte("k"), size)
+		if _, err := Encrypt(key, "x"); err == nil {
+			t.Fatalf("%d 字节密钥应加密失败", size)
+		}
+	}
+}
+
+func TestDecryptRejectsAES128AndAES192KeyLengths(t *testing.T) {
+	key32 := bytes.Repeat([]byte("a"), 32)
+	encoded, err := Encrypt(key32, "registry-pass")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, size := range []int{16, 24} {
+		key := bytes.Repeat([]byte("k"), size)
+		if _, err := Decrypt(key, encoded); err == nil {
+			t.Fatalf("%d 字节密钥应解密失败", size)
+		}
+	}
+}
