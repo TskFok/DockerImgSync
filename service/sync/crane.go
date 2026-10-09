@@ -94,6 +94,10 @@ func (c *Crane) Copy(ctx context.Context, src, dst string, srcAuth, dstAuth *Aut
 	if err != nil {
 		return err
 	}
+	taggable, err = prepareForRegistry(dstRef, taggable)
+	if err != nil {
+		return err
+	}
 	pusher, err := remote.NewPusher(remote.WithAuth(authenticator(dstAuth)), remote.WithTransport(http.DefaultTransport))
 	if err != nil {
 		return err
