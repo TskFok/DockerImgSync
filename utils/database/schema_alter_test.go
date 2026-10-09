@@ -236,6 +236,59 @@ func TestAlterRecreatesIndexWhenColumnsDiffer(t *testing.T) {
 	}
 }
 
+func TestPlanSeparatesSameNameForeignKeyRecreate(t *testing.T) {
+	tables, err := desiredTables("")
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	exists := map[string]bool{}
+	live := map[string]liveTable{}
+	for _, table := range tables {
+		exists[table.Name] = true
+		live[table.Name] = matchingLive(table)
+	}
+	source := live["sync_task"].Columns["source_credential_id"]
+	source.Nullable = false
+	live["sync_task"].Columns["source_credential_id"] = source
+	next := live["sync_task"].Columns["next_run_at"]
+	next.Nullable = false
+	live["sync_task"].Columns["next_run_at"] = next
+
+	stmts, _, _ := planStatements(tables, exists, live)
+	var taskSQL []string
+	for _, stmt := range stmts {
+		if stmt.Table == "sync_task" {
+			taskSQL = append(taskSQL, stmt.SQL)
+		}
+	}
+	if len(taskSQL) < 2 {
+		t.Fatalf("同名外键的删除和重建应分成至少两条 ALTER: %#v", taskSQL)
+	}
+	dropAt, modAt, addAt := -1, -1, -1
+	for i, sql := range taskSQL {
+		hasDrop := strings.Contains(sql, "DROP FOREIGN KEY `fk_sync_task_source_credential`")
+		hasAdd := strings.Contains(sql, "ADD CONSTRAINT `fk_sync_task_source_credential`")
+		if hasDrop && hasAdd {
+			t.Fatalf("同一条 ALTER 不能同时删除并重建同名外键: %s", sql)
+		}
+		if hasDrop {
+			dropAt = i
+		}
+		if strings.Contains(sql, "MODIFY COLUMN `source_credential_id`") {
+			modAt = i
+		}
+		if hasAdd {
+			addAt = i
+		}
+	}
+	if dropAt < 0 || modAt < 0 || addAt < 0 || dropAt != modAt || !(modAt < addAt) {
+		t.Fatalf("应先在改列语句里删除外键，再单独加回: %#v", taskSQL)
+	}
+	if !strings.Contains(taskSQL[dropAt], "DROP INDEX `idx_sync_task_due`") || !strings.Contains(taskSQL[dropAt], "ADD KEY `idx_sync_task_due`") {
+		t.Fatalf("索引重建应留在改列语句中: %s", taskSQL[dropAt])
+	}
+}
+
 func TestAlterRecreatesForeignKeyWhenColumnChanges(t *testing.T) {
 	tables, err := desiredTables("")
 	if err != nil {

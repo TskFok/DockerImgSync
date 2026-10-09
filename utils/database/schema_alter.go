@@ -173,6 +173,41 @@ func columnEqual(want columnSpec, have liveColumn) bool {
 	return want.DefaultValue == have.DefaultValue
 }
 
+// foreignKeySafeAlters 把同名外键的删除和重建拆开。
+// MySQL/MariaDB 在同一条 ALTER 里 DROP FOREIGN KEY 再 ADD CONSTRAINT 同名约束时，
+// InnoDB 会报 Error 1005 / errno 121（Duplicate key on write or update）。
+func foreignKeySafeAlters(table string, alt tableAlter) []string {
+	recreated := map[string]bool{}
+	for _, name := range alt.DropFKs {
+		recreated[name] = true
+	}
+	var later []string
+	if len(recreated) > 0 {
+		kept := make([]string, 0, len(alt.AddFKs))
+		for _, clause := range alt.AddFKs {
+			names := quotedNames(clause)
+			if len(names) > 0 && recreated[names[0]] {
+				later = append(later, clause)
+				continue
+			}
+			kept = append(kept, clause)
+		}
+		alt.AddFKs = kept
+	}
+	var stmts []string
+	if sql, ok := renderAlter(table, alt); ok {
+		stmts = append(stmts, sql)
+	}
+	if len(later) > 0 {
+		parts := make([]string, len(later))
+		for i, clause := range later {
+			parts[i] = "ADD " + clause
+		}
+		stmts = append(stmts, "ALTER TABLE `"+table+"` "+strings.Join(parts, ", "))
+	}
+	return stmts
+}
+
 func renderAlter(table string, alt tableAlter) (string, bool) {
 	var parts []string
 	for _, name := range alt.DropFKs {
@@ -282,12 +317,10 @@ func planStatements(tables []tableSpec, exists map[string]bool, live map[string]
 			deferred = append(deferred, deferredAdd{Table: table.Name, Clauses: deferredFKs})
 			mark(table.Name)
 		}
-		sql, ok := renderAlter(table.Name, alt)
-		if !ok {
-			continue
+		for _, sql := range foreignKeySafeAlters(table.Name, alt) {
+			stmts = append(stmts, plannedStmt{Table: table.Name, SQL: sql})
+			mark(table.Name)
 		}
-		stmts = append(stmts, plannedStmt{Table: table.Name, SQL: sql})
-		mark(table.Name)
 	}
 
 	for _, table := range delayed {
