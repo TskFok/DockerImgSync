@@ -19,7 +19,9 @@ RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates tzdata
+
+ENV TZ=Asia/Shanghai
 
 WORKDIR /app
 COPY --from=build /out/cli /app/cli

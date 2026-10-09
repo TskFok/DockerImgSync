@@ -2,6 +2,7 @@ services:
   mysql:
     image: mysql:8.4
     environment:
+      TZ: Asia/Shanghai
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:?请在 .env 中设置 MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER:?请在 .env 中设置 MYSQL_USER}
@@ -9,6 +10,7 @@ services:
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_general_ci
+      - --default-time-zone=+08:00
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
@@ -27,6 +29,7 @@ services:
     ports:
       - "8080:8080"
     environment:
+      TZ: Asia/Shanghai
       HTTPS_PROXY: ${HTTPS_PROXY:-}
     volumes:
       - ./.env:/app/.env:ro

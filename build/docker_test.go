@@ -19,8 +19,10 @@ func TestComposeFileContract(t *testing.T) {
 		"MYSQL_DATABASE: ${MYSQL_DATABASE:?请在 .env 中设置 MYSQL_DATABASE}",
 		"MYSQL_USER: ${MYSQL_USER:?请在 .env 中设置 MYSQL_USER}",
 		"MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请在 .env 中设置 MYSQL_PASSWORD}",
+		"TZ: Asia/Shanghai",
 		"--character-set-server=utf8mb4",
 		"--collation-server=utf8mb4_general_ci",
+		"--default-time-zone=+08:00",
 		"mysql-data:/var/lib/mysql",
 		`mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD`,
 		"condition: service_healthy",
@@ -31,6 +33,9 @@ func TestComposeFileContract(t *testing.T) {
 		"./.env:/app/.env:ro",
 		"HTTPS_PROXY: ${HTTPS_PROXY:-}",
 	})
+	if got := strings.Count(compose, "TZ: Asia/Shanghai"); got != 2 {
+		t.Errorf("compose.yaml 中 TZ: Asia/Shanghai 出现 %d 次，mysql 与 app 应各有一次", got)
+	}
 	requireSubstrings(t, ".env.example", example, []string{
 		"MYSQL_ROOT_PASSWORD=",
 		"MYSQL_DATABASE=",
@@ -55,7 +60,8 @@ func TestDockerImageBuildContract(t *testing.T) {
 		"GOARCH=${TARGETARCH}",
 		"go build -o /out/cli -ldflags \"-w -s\" -trimpath ./bin/cli/main.go",
 		"FROM alpine:3.21",
-		"ca-certificates",
+		"ca-certificates tzdata",
+		"ENV TZ=Asia/Shanghai",
 		"COPY --from=build /out/cli /app/cli",
 		"EXPOSE 8080",
 		"ENTRYPOINT [\"/app/cli\", \"serve\"]",
