@@ -40,7 +40,15 @@
 <section class="panel">
 {{if .Logs}}
 <div class="table-wrap">
-<table>
+<table class="logs">
+<colgroup>
+<col class="col-trigger">
+<col class="col-status">
+<col class="col-digest">
+<col class="col-message">
+<col class="col-time">
+<col class="col-time">
+</colgroup>
 <thead>
 <tr><th>触发</th><th>状态</th><th>摘要</th><th>说明</th><th>开始</th><th>结束</th></tr>
 </thead>
@@ -49,8 +57,8 @@
 <tr>
 <td data-label="触发">{{.TriggerText}} <span class="badge-code">{{.Trigger}}</span></td>
 <td data-label="状态"><span class="badge badge-{{.Status}}">{{.StatusText}} <span class="badge-code">{{.Status}}</span></span></td>
-<td data-label="摘要" class="mono">{{.SourceDigest}}</td>
-<td data-label="说明">{{.Message}}</td>
+<td data-label="摘要" class="clip"><span class="clip-text mono"{{if .SourceDigest}} tabindex="0"{{end}}><span class="clip-visible">{{.SourceDigest}}</span>{{if .SourceDigest}}<span class="clip-pop" role="tooltip">{{.SourceDigest}}</span>{{end}}</span></td>
+<td data-label="说明" class="clip"><span class="clip-text"{{if .Message}} tabindex="0"{{end}}><span class="clip-visible">{{.Message}}</span>{{if .Message}}<span class="clip-pop" role="tooltip">{{.Message}}</span>{{end}}</span></td>
 <td data-label="开始">{{.StartedAt.Format "2006-01-02 15:04:05"}}</td>
 <td data-label="结束">{{.FinishedAt.Format "2006-01-02 15:04:05"}}</td>
 </tr>

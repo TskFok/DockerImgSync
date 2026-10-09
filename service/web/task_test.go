@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -439,6 +440,59 @@ func TestStatusAndIntervalText(t *testing.T) {
 	}
 	if got := (SyncLog{Trigger: "schedule"}).TriggerText(); got != "定时" {
 		t.Fatalf("触发 schedule => %q", got)
+	}
+}
+
+func TestTaskDetailClipsOverflowLogText(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("ab", 32)
+	message := `复制失败 <tag attr="x"> ` + strings.Repeat("镜像名", 40)
+	store := &fakeTaskStore{
+		tasks: []SyncTask{{
+			ID:              7,
+			Name:            "nginx",
+			SourceImage:     "docker.io/library/nginx:latest",
+			RegistryID:      1,
+			IntervalSeconds: 60,
+			Enabled:         true,
+			LastStatus:      "failed",
+		}},
+		logs: []SyncLog{{
+			Trigger:      "manual",
+			Status:       "failed",
+			SourceDigest: digest,
+			Message:      message,
+			StartedAt:    time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC),
+			FinishedAt:   time.Date(2026, 10, 9, 12, 1, 0, 0, time.UTC),
+		}},
+	}
+	h := testTaskRouter(store, nil)
+	cookie := doLogin(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/tasks/7", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	escaped := html.EscapeString(message)
+	for _, want := range []string{
+		`class="logs"`,
+		`class="clip-visible"`,
+		`class="clip-pop" role="tooltip"`,
+		`text-overflow: ellipsis`,
+		digest,
+		escaped,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("详情页应包含 %q", want)
+		}
+	}
+	if strings.Contains(body, "<tag") {
+		t.Fatal("说明中的 HTML 应被转义")
+	}
+	if strings.Count(body, escaped) != 2 || strings.Count(body, digest) < 2 {
+		t.Fatalf("摘要和说明应同时保留可见文本与悬停全文")
 	}
 }
 

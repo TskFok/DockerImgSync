@@ -167,6 +167,48 @@ h2 { margin: 28px 0 12px; font-size: 20px; }
 }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
+.logs { table-layout: fixed; }
+.logs .col-trigger { width: 12%; }
+.logs .col-status { width: 15%; }
+.logs .col-digest { width: 20%; }
+.logs .col-message { width: 29%; }
+.logs .col-time { width: 12%; }
+.clip { position: relative; }
+.clip-text {
+  display: block;
+  position: relative;
+  min-width: 0;
+}
+.clip-visible {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clip-pop {
+  display: none;
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  top: calc(100% - 4px);
+  width: max-content;
+  max-width: min(32rem, 70vw);
+  max-height: 12rem;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--surface);
+  font-weight: 500;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  box-shadow: 0 8px 24px rgba(28, 25, 21, 0.18);
+}
+.clip-text:hover .clip-pop,
+.clip-text:focus-visible .clip-pop { display: block; }
+.table-wrap:has(.clip-text:hover),
+.table-wrap:has(.clip-text:focus-visible) { overflow: visible; }
 th, td {
   text-align: left;
   padding: 14px 16px;
@@ -362,6 +404,15 @@ legend { padding: 0 6px; font-weight: 700; }
   .workspace { padding: 24px 16px 48px; }
   .page-head { flex-direction: column; align-items: stretch; }
   .table-wrap { overflow: visible; }
+  .logs { table-layout: auto; }
+  .clip-visible {
+    overflow: visible;
+    text-overflow: unset;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .clip-text:hover .clip-pop,
+  .clip-text:focus-visible .clip-pop { display: none; }
   table, tbody, tr, td { display: block; width: auto; }
   thead {
     position: absolute;
