@@ -52,6 +52,7 @@ func NewRouter(deps Deps) http.Handler {
 		tmpl: template.Must(template.ParseFS(templateFS, "templates/*.html")),
 	}
 	r := chi.NewRouter()
+	r.Get("/", s.handleRoot)
 	r.Get("/login", s.handleLoginGet)
 	r.Post("/login", s.handleLoginPost)
 
@@ -113,6 +114,14 @@ func (s *server) requireCSRF(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if user, _, err := s.readSession(r); err == nil && user == s.deps.AdminUser {
+		http.Redirect(w, r, "/tasks", http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
 func (s *server) handleLoginGet(w http.ResponseWriter, r *http.Request) {

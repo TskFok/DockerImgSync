@@ -117,6 +117,32 @@ func doLogin(t *testing.T, h http.Handler) *http.Cookie {
 	return got
 }
 
+func TestRootRedirectsBySession(t *testing.T) {
+	h := testRouter(&fakeCredentialStore{})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("未登录 status=%d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/login" {
+		t.Fatalf("未登录 Location=%s", loc)
+	}
+
+	cookie := doLogin(t, h)
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("已登录 status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if loc := rec.Header().Get("Location"); loc != "/tasks" {
+		t.Fatalf("已登录 Location=%s", loc)
+	}
+}
+
 func TestLoginRedirectUnauthenticated(t *testing.T) {
 	h := testRouter(&fakeCredentialStore{})
 	req := httptest.NewRequest(http.MethodGet, "/credentials", nil)
