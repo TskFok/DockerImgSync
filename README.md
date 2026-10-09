@@ -30,6 +30,30 @@ make build-cli-mac
 
 浏览器打开 `http://127.0.0.1:8080`，使用 `.env` 中的管理员账号登录。
 
+## Docker
+
+本机构建并加载两个架构的镜像，不推远程仓库：
+
+```
+make docker-build
+```
+
+只构建其中一个架构时使用 `make docker-build-amd64` 或 `make docker-build-arm64`。默认镜像名是 `dockerimgsync`，tag 是 `latest`，产物为 `dockerimgsync:latest-amd64` 和 `dockerimgsync:latest-arm64`。可用 `IMAGE`、`TAG` 覆盖。
+
+`.env` 不打进镜像，运行时挂到二进制同目录。MySQL 仍在容器外。
+
+```
+docker run --rm -p 8080:8080 -v "$(pwd)/.env:/app/.env:ro" dockerimgsync:latest-amd64
+```
+
+一起启动 MySQL 和本服务：
+
+```
+docker compose up --build
+```
+
+`compose.yaml` 会按当前机器架构构建 `dockerimgsync:latest`，并把仓库根目录的 `.env` 挂到 `/app/.env`。`MYSQL_DSN` 的主机名写 `mysql`，账号、密码、库名与 `MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_DATABASE` 相同。MySQL 只在 Compose 网络内访问，数据放在卷 `mysql-data`。浏览器打开 `http://127.0.0.1:8080`。
+
 ## 使用顺序
 
 1. 先创建登录信息（源仓库或目标仓库的账号）。

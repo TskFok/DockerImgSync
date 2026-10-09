@@ -23,3 +23,20 @@ build-cli-mac: mac build-file-cli
 
 update:
 	go mody tidy
+
+IMAGE ?= dockerimgsync
+TAG ?= latest
+
+.PHONY: docker-build docker-build-amd64 docker-build-arm64 require-docker
+
+docker-build: docker-build-amd64 docker-build-arm64
+
+docker-build-amd64: require-docker
+	docker buildx build --platform linux/amd64 --load -t $(IMAGE):$(TAG)-amd64 .
+
+docker-build-arm64: require-docker
+	docker buildx build --platform linux/arm64 --load -t $(IMAGE):$(TAG)-arm64 .
+
+require-docker:
+	@command -v docker >/dev/null 2>&1 || { echo "未安装 Docker，无法构建镜像"; exit 1; }
+	@docker buildx version >/dev/null 2>&1 || { echo "未安装 Docker buildx，无法跨平台构建镜像"; exit 1; }
