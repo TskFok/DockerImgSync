@@ -173,6 +173,43 @@ table { width: 100%; border-collapse: collapse; }
 .logs .col-digest { width: 20%; }
 .logs .col-message { width: 29%; }
 .logs .col-time { width: 12%; }
+.task-list { table-layout: fixed; }
+.credential-list { table-layout: fixed; }
+.registry-list { table-layout: fixed; }
+.task-list th,
+.task-list td,
+.credential-list th,
+.credential-list td,
+.registry-list th,
+.registry-list td { padding-left: 12px; padding-right: 12px; }
+.task-list .col-name { width: 20%; }
+.task-list .col-image { width: 21%; }
+.task-list .col-check { width: 14%; }
+.task-list .col-status { width: 24%; }
+.task-list .col-actions { width: 21%; }
+.credential-list .col-name { width: 36%; }
+.credential-list .col-user { width: 36%; }
+.credential-list .col-actions { width: 28%; }
+.registry-list .col-name { width: 16%; }
+.registry-list .col-address { width: 26%; }
+.registry-list .col-namespace { width: 16%; }
+.registry-list .col-credential { width: 14%; }
+.registry-list .col-actions { width: 28%; }
+@media (min-width: 1200px) {
+  .task-list .col-name { width: 16%; }
+  .task-list .col-image { width: 30%; }
+  .task-list .col-check { width: 12%; }
+  .task-list .col-status { width: 20%; }
+  .task-list .col-actions { width: 22%; }
+  .credential-list .col-name { width: 38%; }
+  .credential-list .col-user { width: 42%; }
+  .credential-list .col-actions { width: 20%; }
+  .registry-list .col-name { width: 16%; }
+  .registry-list .col-address { width: 34%; }
+  .registry-list .col-namespace { width: 16%; }
+  .registry-list .col-credential { width: 16%; }
+  .registry-list .col-actions { width: 18%; }
+}
 .clip { position: relative; }
 .clip-text {
   display: block;
@@ -206,9 +243,9 @@ table { width: 100%; border-collapse: collapse; }
   box-shadow: 0 8px 24px rgba(28, 25, 21, 0.18);
 }
 .clip-text:hover .clip-pop,
-.clip-text:focus-visible .clip-pop { display: block; }
+.clip-text:focus-within .clip-pop { display: block; }
 .table-wrap:has(.clip-text:hover),
-.table-wrap:has(.clip-text:focus-visible) { overflow: visible; }
+.table-wrap:has(.clip-text:focus-within) { overflow: visible; }
 th, td {
   text-align: left;
   padding: 14px 16px;
@@ -229,7 +266,8 @@ tr:last-child td { border-bottom: 0; }
   font-size: 13px;
   overflow-wrap: anywhere;
 }
-.ref { display: flex; gap: 8px; align-items: baseline; margin-top: 4px; }
+.ref { display: flex; gap: 8px; align-items: baseline; margin-top: 4px; min-width: 0; }
+.ref .clip-text { flex: 1; }
 .ref:first-child { margin-top: 0; }
 .ref-k {
   flex: none;
@@ -239,6 +277,7 @@ tr:last-child td { border-bottom: 0; }
   font-weight: 700;
 }
 .stack { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.stack > span:first-child { white-space: nowrap; }
 .badge, .pill {
   display: inline-flex;
   align-items: center;
@@ -343,6 +382,7 @@ legend { padding: 0 6px; font-weight: 700; }
   margin: 0 0 8px;
 }
 .facts div {
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -350,7 +390,7 @@ legend { padding: 0 6px; font-weight: 700; }
   box-shadow: var(--shadow);
 }
 .facts dt { color: var(--muted); font-size: 13px; }
-.facts dd { margin: 6px 0 0; font-weight: 600; }
+.facts dd { margin: 6px 0 0; font-weight: 600; min-width: 0; }
 .login-stage {
   min-height: 100dvh;
   display: grid;
@@ -404,7 +444,7 @@ legend { padding: 0 6px; font-weight: 700; }
   .workspace { padding: 24px 16px 48px; }
   .page-head { flex-direction: column; align-items: stretch; }
   .table-wrap { overflow: visible; }
-  .logs { table-layout: auto; }
+  .logs, .task-list, .credential-list, .registry-list { table-layout: auto; }
   .clip-visible {
     overflow: visible;
     text-overflow: unset;
@@ -412,7 +452,7 @@ legend { padding: 0 6px; font-weight: 700; }
     overflow-wrap: anywhere;
   }
   .clip-text:hover .clip-pop,
-  .clip-text:focus-visible .clip-pop { display: none; }
+  .clip-text:focus-within .clip-pop { display: none; }
   table, tbody, tr, td { display: block; width: auto; }
   thead {
     position: absolute;

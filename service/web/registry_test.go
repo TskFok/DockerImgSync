@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -172,5 +173,50 @@ func TestRegistryDeleteInUse(t *testing.T) {
 	}
 	if store.deleteCount != 0 {
 		t.Fatalf("删除计数=%d，应为 0", store.deleteCount)
+	}
+}
+
+func TestRegistryListClipsOverflowFields(t *testing.T) {
+	name := `杭州仓库 <b>` + strings.Repeat("名", 60)
+	address := "registry.example.com/" + strings.Repeat("region-", 20)
+	namespace := strings.Repeat("team_", 40) + `<ns>`
+	credential := `推送账号 <i>` + strings.Repeat("凭据", 40)
+	h := testRegistryRouter(&fakeRegistryStore{registries: []Registry{{
+		ID:             2,
+		Name:           name,
+		Address:        address,
+		Namespace:      namespace,
+		CredentialName: credential,
+	}}})
+	cookie := doLogin(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/registries", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`class="registry-list"`,
+		`class="clip-visible"`,
+		`class="clip-pop" role="tooltip"`,
+		`.registry-list { table-layout: fixed; }`,
+		html.EscapeString(name),
+		html.EscapeString(address),
+		html.EscapeString(namespace),
+		html.EscapeString(credential),
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("列表应包含 %q", want)
+		}
+	}
+	if strings.Contains(body, "<b>") || strings.Contains(body, "<ns>") || strings.Contains(body, "<i>") {
+		t.Fatal("超长字段中的 HTML 应被转义")
+	}
+	for _, raw := range []string{name, address, namespace, credential} {
+		if strings.Count(body, html.EscapeString(raw)) != 2 {
+			t.Fatalf("%q 应同时保留可见文本与悬停全文", raw)
+		}
 	}
 }

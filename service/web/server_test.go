@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -271,5 +272,44 @@ func TestCredentialDeleteInUse(t *testing.T) {
 	}
 	if store.deleteCount != 0 {
 		t.Fatalf("删除计数=%d，应为 0", store.deleteCount)
+	}
+}
+
+func TestCredentialListClipsOverflowFields(t *testing.T) {
+	name := `仓库账号 <b>` + strings.Repeat("名", 80)
+	username := `robot$` + strings.Repeat("user-", 40) + `<x>`
+	h := testRouter(&fakeCredentialStore{creds: []Credential{{
+		ID:       1,
+		Name:     name,
+		Username: username,
+	}}})
+	cookie := doLogin(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/credentials", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`class="credential-list"`,
+		`class="clip-visible"`,
+		`class="clip-pop" role="tooltip"`,
+		`.credential-list { table-layout: fixed; }`,
+		html.EscapeString(name),
+		html.EscapeString(username),
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("列表应包含 %q", want)
+		}
+	}
+	if strings.Contains(body, "<b>") || strings.Contains(body, "<x>") {
+		t.Fatal("超长字段中的 HTML 应被转义")
+	}
+	for _, raw := range []string{name, username} {
+		if strings.Count(body, html.EscapeString(raw)) != 2 {
+			t.Fatalf("%q 应同时保留可见文本与悬停全文", raw)
+		}
 	}
 }

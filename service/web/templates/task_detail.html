@@ -11,8 +11,8 @@
 {{if .Message}}<p class="alert alert-info" role="status">{{.Message}}</p>{{end}}
 {{if .Error}}<p class="alert alert-error" role="alert">{{.Error}}</p>{{end}}
 <dl class="facts">
-<div><dt>源镜像</dt><dd class="mono">{{.Task.SourceImage}}</dd></div>
-<div><dt>目标仓库名</dt><dd class="mono">{{.Task.DestRepositoryLabel}}</dd></div>
+<div><dt>源镜像</dt><dd class="mono"><span class="clip-text"{{if .Task.SourceImage}} tabindex="0"{{end}}><span class="clip-visible">{{.Task.SourceImage}}</span>{{if .Task.SourceImage}}<span class="clip-pop" role="tooltip">{{.Task.SourceImage}}</span>{{end}}</span></dd></div>
+<div><dt>目标仓库名</dt><dd class="mono"><span class="clip-text"{{if .Task.DestRepositoryLabel}} tabindex="0"{{end}}><span class="clip-visible">{{.Task.DestRepositoryLabel}}</span>{{if .Task.DestRepositoryLabel}}<span class="clip-pop" role="tooltip">{{.Task.DestRepositoryLabel}}</span>{{end}}</span></dd></div>
 <div><dt>目标 Tag</dt><dd class="mono">{{.Task.DestTagLabel}}</dd></div>
 <div><dt>检查间隔</dt><dd>{{.Task.IntervalText}}</dd></div>
 <div><dt>定时检查</dt><dd>{{if .Task.Enabled}}启用{{else}}关闭{{end}}</dd></div>

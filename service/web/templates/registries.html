@@ -12,17 +12,24 @@
 <section class="panel">
 {{if .Registries}}
 <div class="table-wrap">
-<table>
+<table class="registry-list">
+<colgroup>
+<col class="col-name">
+<col class="col-address">
+<col class="col-namespace">
+<col class="col-credential">
+<col class="col-actions">
+</colgroup>
 <thead>
 <tr><th>名称</th><th>地址</th><th>命名空间</th><th>登录信息</th><th>操作</th></tr>
 </thead>
 <tbody>
 {{range .Registries}}
 <tr>
-<td data-label="名称">{{.Name}}</td>
-<td data-label="地址" class="mono">{{.Address}}</td>
-<td data-label="命名空间" class="mono">{{.Namespace}}</td>
-<td data-label="登录信息">{{.CredentialName}}</td>
+<td data-label="名称" class="clip"><span class="clip-text"{{if .Name}} tabindex="0"{{end}}><span class="clip-visible">{{.Name}}</span>{{if .Name}}<span class="clip-pop" role="tooltip">{{.Name}}</span>{{end}}</span></td>
+<td data-label="地址" class="clip"><span class="clip-text mono"{{if .Address}} tabindex="0"{{end}}><span class="clip-visible">{{.Address}}</span>{{if .Address}}<span class="clip-pop" role="tooltip">{{.Address}}</span>{{end}}</span></td>
+<td data-label="命名空间" class="clip"><span class="clip-text mono"{{if .Namespace}} tabindex="0"{{end}}><span class="clip-visible">{{.Namespace}}</span>{{if .Namespace}}<span class="clip-pop" role="tooltip">{{.Namespace}}</span>{{end}}</span></td>
+<td data-label="登录信息" class="clip"><span class="clip-text"{{if .CredentialName}} tabindex="0"{{end}}><span class="clip-visible">{{.CredentialName}}</span>{{if .CredentialName}}<span class="clip-pop" role="tooltip">{{.CredentialName}}</span>{{end}}</span></td>
 <td>
 <div class="actions">
 <a class="btn" href="/registries/{{.ID}}/edit">编辑</a>

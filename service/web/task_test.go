@@ -443,6 +443,56 @@ func TestStatusAndIntervalText(t *testing.T) {
 	}
 }
 
+func TestTaskListClipsOverflowFields(t *testing.T) {
+	name := `发布任务 <b>` + strings.Repeat("名", 80)
+	image := "registry.example.com/" + strings.Repeat("library/", 20) + "nginx:1.25"
+	repo := strings.Repeat("team/", 30) + "nginx"
+	tag := strings.Repeat("release-", 20) + "1"
+	lastError := `复制失败 <script>` + strings.Repeat("原因", 40)
+	store := &fakeTaskStore{tasks: []SyncTask{{
+		ID:             3,
+		Name:           name,
+		SourceImage:    image,
+		DestRepository: repo,
+		DestTag:        tag,
+		LastStatus:     "failed",
+		LastError:      lastError,
+	}}}
+	h := testTaskRouter(store, nil)
+	cookie := doLogin(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/tasks", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`class="task-list"`,
+		`class="clip-visible"`,
+		`class="clip-pop" role="tooltip"`,
+		`.task-list { table-layout: fixed; }`,
+		html.EscapeString(name),
+		html.EscapeString(image),
+		html.EscapeString(repo),
+		html.EscapeString(tag),
+		html.EscapeString(lastError),
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("列表应包含 %q", want)
+		}
+	}
+	if strings.Contains(body, "<b>") || strings.Contains(body, "<script>") {
+		t.Fatal("超长字段中的 HTML 应被转义")
+	}
+	for _, raw := range []string{name, image, repo, tag, lastError} {
+		if strings.Count(body, html.EscapeString(raw)) != 2 {
+			t.Fatalf("%q 应同时保留可见文本与悬停全文", raw)
+		}
+	}
+}
+
 func TestTaskDetailClipsOverflowLogText(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("ab", 32)
 	message := `复制失败 <tag attr="x"> ` + strings.Repeat("镜像名", 40)
@@ -493,6 +543,48 @@ func TestTaskDetailClipsOverflowLogText(t *testing.T) {
 	}
 	if strings.Count(body, escaped) != 2 || strings.Count(body, digest) < 2 {
 		t.Fatalf("摘要和说明应同时保留可见文本与悬停全文")
+	}
+}
+
+func TestTaskDetailClipsOverflowFacts(t *testing.T) {
+	image := `registry.example.com/<img>` + strings.Repeat("library/", 30) + "nginx:1.25"
+	repo := `team/<b>` + strings.Repeat("path/", 40) + "nginx"
+	store := &fakeTaskStore{tasks: []SyncTask{{
+		ID:             7,
+		Name:           "nginx",
+		SourceImage:    image,
+		DestRepository: repo,
+		DestTag:        "stable",
+		LastStatus:     "idle",
+	}}}
+	h := testTaskRouter(store, nil)
+	cookie := doLogin(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/tasks/7", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`class="facts"`,
+		`class="clip-visible"`,
+		`class="clip-pop" role="tooltip"`,
+		html.EscapeString(image),
+		html.EscapeString(repo),
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("详情页应包含 %q", want)
+		}
+	}
+	if strings.Contains(body, "<img>") || strings.Contains(body, "<b>") {
+		t.Fatal("源镜像和目标仓库名中的 HTML 应被转义")
+	}
+	for _, raw := range []string{image, repo} {
+		if strings.Count(body, html.EscapeString(raw)) != 2 {
+			t.Fatalf("%q 应同时保留可见文本与悬停全文", raw)
+		}
 	}
 }
 

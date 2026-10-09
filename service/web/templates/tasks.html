@@ -12,18 +12,25 @@
 <section class="panel">
 {{if .Tasks}}
 <div class="table-wrap">
-<table>
+<table class="task-list">
+<colgroup>
+<col class="col-name">
+<col class="col-image">
+<col class="col-check">
+<col class="col-status">
+<col class="col-actions">
+</colgroup>
 <thead>
 <tr><th>任务</th><th>镜像</th><th>检查</th><th>状态</th><th>操作</th></tr>
 </thead>
 <tbody>
 {{range .Tasks}}
 <tr>
-<td data-label="任务"><a class="name-link" href="/tasks/{{.ID}}">{{.Name}}</a></td>
+<td data-label="任务" class="clip"><span class="clip-text"><a class="name-link clip-visible" href="/tasks/{{.ID}}">{{.Name}}</a><span class="clip-pop" role="tooltip">{{.Name}}</span></span></td>
 <td data-label="镜像">
-<div class="ref"><span class="ref-k">源</span><span class="mono">{{.SourceImage}}</span></div>
-<div class="ref"><span class="ref-k">仓库</span><span class="mono">{{.DestRepositoryLabel}}</span></div>
-<div class="ref"><span class="ref-k">Tag</span><span class="mono">{{.DestTagLabel}}</span></div>
+<div class="ref"><span class="ref-k">源</span><span class="clip-text mono" tabindex="0"><span class="clip-visible">{{.SourceImage}}</span><span class="clip-pop" role="tooltip">{{.SourceImage}}</span></span></div>
+<div class="ref"><span class="ref-k">仓库</span><span class="clip-text mono" tabindex="0"><span class="clip-visible">{{.DestRepositoryLabel}}</span><span class="clip-pop" role="tooltip">{{.DestRepositoryLabel}}</span></span></div>
+<div class="ref"><span class="ref-k">Tag</span><span class="clip-text mono" tabindex="0"><span class="clip-visible">{{.DestTagLabel}}</span><span class="clip-pop" role="tooltip">{{.DestTagLabel}}</span></span></div>
 </td>
 <td data-label="检查">
 <div class="stack">
@@ -33,7 +40,7 @@
 </td>
 <td data-label="状态">
 <span class="badge badge-{{.LastStatus}}">{{.StatusText}} <span class="badge-code">{{.LastStatus}}</span></span>
-{{if eq .LastStatus "failed"}}<p class="err-text">{{.LastError}}</p>{{end}}
+{{if eq .LastStatus "failed"}}<p class="clip-text err-text"{{if .LastError}} tabindex="0"{{end}}><span class="clip-visible">{{.LastError}}</span>{{if .LastError}}<span class="clip-pop" role="tooltip">{{.LastError}}</span>{{end}}</p>{{end}}
 </td>
 <td>
 <div class="actions">
