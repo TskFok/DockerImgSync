@@ -410,6 +410,38 @@ func TestTaskListShowsStatusAndFailure(t *testing.T) {
 	}
 }
 
+func TestStatusAndIntervalText(t *testing.T) {
+	cases := []struct {
+		status string
+		want   string
+	}{
+		{"idle", "空闲"},
+		{"running", "同步中"},
+		{"success", "成功"},
+		{"failed", "失败"},
+		{"skipped", "无变化"},
+		{"", "未记录"},
+		{"custom", "custom"},
+	}
+	for _, tc := range cases {
+		if got := statusText(tc.status); got != tc.want {
+			t.Fatalf("status %q => %q，期望 %q", tc.status, got, tc.want)
+		}
+	}
+	if got := (SyncTask{IntervalSeconds: 0}).IntervalText(); got != "仅手动" {
+		t.Fatalf("间隔 0 => %q", got)
+	}
+	if got := (SyncTask{IntervalSeconds: 60}).IntervalText(); got != "60 秒" {
+		t.Fatalf("间隔 60 => %q", got)
+	}
+	if got := (SyncLog{Trigger: "manual"}).TriggerText(); got != "手动" {
+		t.Fatalf("触发 manual => %q", got)
+	}
+	if got := (SyncLog{Trigger: "schedule"}).TriggerText(); got != "定时" {
+		t.Fatalf("触发 schedule => %q", got)
+	}
+}
+
 func TestTaskFormShowsSameAsSource(t *testing.T) {
 	h := testTaskRouter(&fakeTaskStore{}, nil)
 	cookie := doLogin(t, h)

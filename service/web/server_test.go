@@ -166,6 +166,56 @@ func TestLoginGetRedirectsValidAdmin(t *testing.T) {
 	}
 }
 
+func TestLoginPageExplainsWorkflow(t *testing.T) {
+	h := testRouter(&fakeCredentialStore{})
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`name="viewport"`,
+		"把镜像复制到目标仓库",
+		`name="username"`,
+		`name="password"`,
+		`for="username"`,
+		`for="password"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("登录页应含 %s: %s", want, body)
+		}
+	}
+}
+
+func TestCredentialsNavMarksCurrentStep(t *testing.T) {
+	h := testRouter(&fakeCredentialStore{})
+	cookie := doLogin(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/credentials", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"我的账号",
+		"配置顺序",
+		`href="/credentials" aria-current="page"`,
+		`href="/registries"`,
+		`href="/tasks"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("登录信息页应含 %s: %s", want, body)
+		}
+	}
+	if strings.Contains(body, `href="/registries" aria-current="page"`) || strings.Contains(body, `href="/tasks" aria-current="page"`) {
+		t.Fatalf("当前步骤不应标到其他导航: %s", body)
+	}
+}
+
 func TestLoginSuccessCredentialsPage(t *testing.T) {
 	h := testRouter(&fakeCredentialStore{})
 	cookie := doLogin(t, h)

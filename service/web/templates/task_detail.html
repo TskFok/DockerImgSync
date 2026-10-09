@@ -1,40 +1,45 @@
 {{define "task_detail"}}
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<title>同步任务详情</title>
-</head>
-<body>
-{{template "nav" .}}
+{{template "head" .}}
+<header class="page-head">
+<div>
+<p class="kicker">第 3 步 · 同步</p>
 <h1>{{.Task.Name}}</h1>
-{{if .Message}}<p>{{.Message}}</p>{{end}}
-{{if .Error}}<p>{{.Error}}</p>{{end}}
-<p>源镜像：{{.Task.SourceImage}}</p>
-<p>目标仓库名：{{.Task.DestRepositoryLabel}}</p>
-<p>目标 Tag：{{.Task.DestTagLabel}}</p>
-<p>间隔（秒）：{{.Task.IntervalSeconds}}</p>
-<p>启用：{{if .Task.Enabled}}启用{{else}}关闭{{end}}</p>
-<p>状态：{{.Task.LastStatus}}</p>
-{{if eq .Task.LastStatus "failed"}}<p>错误：{{.Task.LastError}}</p>{{end}}
-{{if .Task.LastSyncedAt}}<p>最近同步：{{.Task.LastSyncedAt.Format "2006-01-02 15:04:05"}}</p>{{end}}
-<p>
-<a href="/tasks/{{.Task.ID}}/edit">编辑</a>
+<p class="lead">查看这次复制的来源、目标和最近一次结果。</p>
+</div>
+<a class="btn" href="/tasks">返回列表</a>
+</header>
+{{if .Message}}<p class="alert alert-info" role="status">{{.Message}}</p>{{end}}
+{{if .Error}}<p class="alert alert-error" role="alert">{{.Error}}</p>{{end}}
+<dl class="facts">
+<div><dt>源镜像</dt><dd class="mono">{{.Task.SourceImage}}</dd></div>
+<div><dt>目标仓库名</dt><dd class="mono">{{.Task.DestRepositoryLabel}}</dd></div>
+<div><dt>目标 Tag</dt><dd class="mono">{{.Task.DestTagLabel}}</dd></div>
+<div><dt>检查间隔</dt><dd>{{.Task.IntervalText}}</dd></div>
+<div><dt>定时检查</dt><dd>{{if .Task.Enabled}}启用{{else}}关闭{{end}}</dd></div>
+<div><dt>状态</dt><dd><span class="badge badge-{{.Task.LastStatus}}">{{.Task.StatusText}} <span class="badge-code">{{.Task.LastStatus}}</span></span></dd></div>
+{{if .Task.LastSyncedAt}}<div><dt>最近同步</dt><dd>{{.Task.LastSyncedAt.Format "2006-01-02 15:04:05"}}</dd></div>{{end}}
+</dl>
+{{if eq .Task.LastStatus "failed"}}<p class="alert alert-error" role="alert">错误：{{.Task.LastError}}</p>{{end}}
+<div class="actions">
+<a class="btn" href="/tasks/{{.Task.ID}}/edit">编辑</a>
 <form action="/tasks/{{.Task.ID}}/sync" method="post">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
-<button type="submit">立即同步</button>
+<button class="btn btn-primary" type="submit">立即同步</button>
 </form>
 <form action="/tasks/{{.Task.ID}}/toggle" method="post">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <input type="hidden" name="enabled" value="{{if .Task.Enabled}}0{{else}}1{{end}}">
-<button type="submit">{{if .Task.Enabled}}关闭{{else}}启用{{end}}</button>
+<button class="btn" type="submit">{{if .Task.Enabled}}关闭{{else}}启用{{end}}</button>
 </form>
-<form action="/tasks/{{.Task.ID}}/delete" method="post">
+<form action="/tasks/{{.Task.ID}}/delete" method="post" onsubmit="return confirm('确定删除这个同步任务？同步记录会一起删除。');">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
-<button type="submit">删除</button>
+<button class="btn btn-danger" type="submit">删除</button>
 </form>
-</p>
+</div>
 <h2>同步记录</h2>
+<section class="panel">
+{{if .Logs}}
+<div class="table-wrap">
 <table>
 <thead>
 <tr><th>触发</th><th>状态</th><th>摘要</th><th>说明</th><th>开始</th><th>结束</th></tr>
@@ -42,16 +47,23 @@
 <tbody>
 {{range .Logs}}
 <tr>
-<td>{{.Trigger}}</td>
-<td>{{.Status}}</td>
-<td>{{.SourceDigest}}</td>
-<td>{{.Message}}</td>
-<td>{{.StartedAt.Format "2006-01-02 15:04:05"}}</td>
-<td>{{.FinishedAt.Format "2006-01-02 15:04:05"}}</td>
+<td data-label="触发">{{.TriggerText}} <span class="badge-code">{{.Trigger}}</span></td>
+<td data-label="状态"><span class="badge badge-{{.Status}}">{{.StatusText}} <span class="badge-code">{{.Status}}</span></span></td>
+<td data-label="摘要" class="mono">{{.SourceDigest}}</td>
+<td data-label="说明">{{.Message}}</td>
+<td data-label="开始">{{.StartedAt.Format "2006-01-02 15:04:05"}}</td>
+<td data-label="结束">{{.FinishedAt.Format "2006-01-02 15:04:05"}}</td>
 </tr>
 {{end}}
 </tbody>
 </table>
-</body>
-</html>
+</div>
+{{else}}
+<div class="empty">
+<strong>还没有同步记录</strong>
+<p>可以先手动同步一次，结果会记在这里。</p>
+</div>
+{{end}}
+</section>
+{{template "foot" .}}
 {{end}}

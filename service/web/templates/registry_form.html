@@ -1,28 +1,45 @@
 {{define "registry_form"}}
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<title>{{if .IsEdit}}编辑目标仓库{{else}}新建目标仓库{{end}}</title>
-</head>
-<body>
-{{template "nav" .}}
+{{template "head" .}}
+<header class="page-head">
+<div>
+<p class="kicker">第 2 步 · 目标</p>
 <h1>{{if .IsEdit}}编辑目标仓库{{else}}新建目标仓库{{end}}</h1>
-{{if .Error}}<p>{{.Error}}</p>{{end}}
-<form action="{{.Action}}" method="post">
+<p class="lead">地址只写主机名，不要带协议或路径。</p>
+</div>
+</header>
+{{if .Error}}<p class="alert alert-error" role="alert">{{.Error}}</p>{{end}}
+<form class="form" action="{{.Action}}" method="post">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
-<label>名称 <input type="text" name="name" value="{{.Registry.Name}}"></label>
-<label>地址 <input type="text" name="address" value="{{.Registry.Address}}"></label>
-<label>命名空间 <input type="text" name="namespace" value="{{.Registry.Namespace}}"></label>
-<label>登录信息
-<select name="credential_id">
+<fieldset>
+<legend>仓库</legend>
+<div class="field">
+<label for="name">名称</label>
+<input id="name" type="text" name="name" value="{{.Registry.Name}}" autocomplete="off">
+<p class="hint">只用于在列表中识别。</p>
+</div>
+<div class="field">
+<label for="address">地址</label>
+<input id="address" type="text" name="address" value="{{.Registry.Address}}" spellcheck="false" placeholder="registry.example.com">
+<p class="hint">例如 registry.cn-hangzhou.aliyuncs.com，不要写 https://。</p>
+</div>
+<div class="field">
+<label for="namespace">命名空间</label>
+<input id="namespace" type="text" name="namespace" value="{{.Registry.Namespace}}" spellcheck="false">
+</div>
+<div class="field">
+<label for="credential_id">登录信息</label>
+<select id="credential_id" name="credential_id">
 {{range .Credentials}}
 <option value="{{.ID}}" {{if eq .ID $.Registry.CredentialID}}selected{{end}}>{{.Name}}</option>
 {{end}}
 </select>
-</label>
-<button type="submit">保存</button>
+<p class="hint">推送到这个仓库时使用的账号。请选择登录信息。</p>
+</div>
+</fieldset>
+<div class="form-actions">
+<button class="btn btn-primary" type="submit">保存</button>
+<a class="btn" href="/registries">返回列表</a>
+</div>
 </form>
-</body>
-</html>
+{{template "foot" .}}
 {{end}}

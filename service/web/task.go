@@ -51,6 +51,57 @@ func (t SyncTask) DestTagLabel() string {
 	return t.DestTag
 }
 
+func (t SyncTask) StatusText() string {
+	return statusText(t.LastStatus)
+}
+
+func (t SyncTask) IntervalText() string {
+	if t.IntervalSeconds <= 0 {
+		return "仅手动"
+	}
+	return strconv.Itoa(t.IntervalSeconds) + " 秒"
+}
+
+func (l SyncLog) StatusText() string {
+	return statusText(l.Status)
+}
+
+func (l SyncLog) TriggerText() string {
+	switch l.Trigger {
+	case "manual":
+		return "手动"
+	case "schedule":
+		return "定时"
+	case "startup":
+		return "启动"
+	default:
+		if l.Trigger == "" {
+			return "未记录"
+		}
+		return l.Trigger
+	}
+}
+
+func statusText(status string) string {
+	switch status {
+	case "idle":
+		return "空闲"
+	case "running":
+		return "同步中"
+	case "success":
+		return "成功"
+	case "failed":
+		return "失败"
+	case "skipped":
+		return "无变化"
+	default:
+		if status == "" {
+			return "未记录"
+		}
+		return status
+	}
+}
+
 type SyncLog struct {
 	Trigger      string
 	Status       string

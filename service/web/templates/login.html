@@ -1,19 +1,35 @@
 {{define "login"}}
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<title>登录</title>
-</head>
-<body>
-<h1>登录</h1>
-{{if .Error}}<p>{{.Error}}</p>{{end}}
-<form action="/login" method="post">
+{{template "head" .}}
+<main class="login-stage" id="main">
+<section class="login-hero">
+<p class="kicker">Docker 镜像仓库</p>
+<h1>把镜像复制到目标仓库</h1>
+<p class="lead">不依赖本机 Docker。按下面三步配置一次，之后可以定时或手动同步。</p>
+<ol class="steps">
+<li><span class="step">1</span>保存登录信息</li>
+<li><span class="step">2</span>登记目标仓库</li>
+<li><span class="step">3</span>创建同步任务</li>
+</ol>
+</section>
+<section class="login-card">
+<h2>登录</h2>
+<p class="lead">使用管理员账号进入控制台。</p>
+{{if .Error}}<p class="alert alert-error" role="alert">{{.Error}}</p>{{end}}
+<form class="form" action="/login" method="post">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
-<label>用户名 <input type="text" name="username"></label>
-<label>密码 <input type="password" name="password"></label>
-<button type="submit">登录</button>
+<div class="field">
+<label for="username">用户名</label>
+<input id="username" type="text" name="username" autocomplete="username" spellcheck="false">
+</div>
+<div class="field">
+<label for="password">密码</label>
+<input id="password" type="password" name="password" autocomplete="current-password">
+</div>
+<div class="form-actions">
+<button class="btn btn-primary" type="submit">登录</button>
+</div>
 </form>
-</body>
-</html>
+</section>
+</main>
+{{template "foot" .}}
 {{end}}

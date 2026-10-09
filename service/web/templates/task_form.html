@@ -1,39 +1,76 @@
 {{define "task_form"}}
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<title>{{if .IsEdit}}编辑同步任务{{else}}新建同步任务{{end}}</title>
-</head>
-<body>
-{{template "nav" .}}
+{{template "head" .}}
+<header class="page-head">
+<div>
+<p class="kicker">第 3 步 · 同步</p>
 <h1>{{if .IsEdit}}编辑同步任务{{else}}新建同步任务{{end}}</h1>
-{{if .Error}}<p>{{.Error}}</p>{{end}}
-<form action="{{.Action}}" method="post">
+<p class="lead">源镜像必须带 tag。目标仓库名和 tag 留空时与源相同。</p>
+</div>
+</header>
+{{if .Error}}<p class="alert alert-error" role="alert">{{.Error}}</p>{{end}}
+<form class="form" action="{{.Action}}" method="post">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
-<label>名称 <input type="text" name="name" value="{{.Task.Name}}"></label>
-<label>源镜像 <input type="text" name="source_image" value="{{.Task.SourceImage}}"></label>
-<label>源登录信息
-<select name="source_credential_id">
+<fieldset>
+<legend>来源</legend>
+<div class="field">
+<label for="name">名称</label>
+<input id="name" type="text" name="name" value="{{.Task.Name}}" autocomplete="off">
+<p class="hint">只用于在任务列表中识别。</p>
+</div>
+<div class="field">
+<label for="source_image">源镜像</label>
+<input id="source_image" type="text" name="source_image" value="{{.Task.SourceImage}}" spellcheck="false" placeholder="nginx:1.25">
+<p class="hint">必须包含 tag，例如 library/nginx:1.25。</p>
+</div>
+<div class="field">
+<label for="source_credential_id">源登录信息</label>
+<select id="source_credential_id" name="source_credential_id">
 <option value="">匿名拉取</option>
 {{range .Credentials}}
 <option value="{{.ID}}" {{if eq .ID $.Task.SourceCredentialValue}}selected{{end}}>{{.Name}}</option>
 {{end}}
 </select>
-</label>
-<label>目标仓库
-<select name="registry_id">
+<p class="hint">公开镜像保持「匿名拉取」。私有源从已保存的登录信息里选择。</p>
+</div>
+</fieldset>
+<fieldset>
+<legend>目标</legend>
+<div class="field">
+<label for="registry_id">目标仓库</label>
+<select id="registry_id" name="registry_id">
 {{range .Registries}}
 <option value="{{.ID}}" {{if eq .ID $.Task.RegistryID}}selected{{end}}>{{.Name}}</option>
 {{end}}
 </select>
+</div>
+<div class="field">
+<label for="dest_repository">目标仓库名</label>
+<input id="dest_repository" type="text" name="dest_repository" value="{{.Task.DestRepository}}" placeholder="与源相同" spellcheck="false">
+<p class="hint">留空表示与源相同</p>
+</div>
+<div class="field">
+<label for="dest_tag">目标 Tag</label>
+<input id="dest_tag" type="text" name="dest_tag" value="{{.Task.DestTag}}" placeholder="与源相同" spellcheck="false">
+<p class="hint">留空表示与源相同</p>
+</div>
+</fieldset>
+<fieldset>
+<legend>调度</legend>
+<div class="field">
+<label for="interval_seconds">检查间隔（秒）</label>
+<input id="interval_seconds" type="number" name="interval_seconds" value="{{.Task.IntervalSeconds}}" min="0" inputmode="numeric">
+<p class="hint">填 0 表示只手动同步。启用定时检查时至少 60 秒。</p>
+</div>
+<label class="check">
+<input type="checkbox" name="enabled" value="1" {{if .Task.Enabled}}checked{{end}}>
+<span>启用定时检查</span>
 </label>
-<label>目标仓库名 <input type="text" name="dest_repository" value="{{.Task.DestRepository}}" placeholder="与源相同"> <span>与源相同</span></label>
-<label>目标 Tag <input type="text" name="dest_tag" value="{{.Task.DestTag}}" placeholder="与源相同"> <span>与源相同</span></label>
-<label>检查间隔（秒） <input type="number" name="interval_seconds" value="{{.Task.IntervalSeconds}}"></label>
-<label>启用 <input type="checkbox" name="enabled" value="1" {{if .Task.Enabled}}checked{{end}}></label>
-<button type="submit">保存</button>
+<p class="hint">关闭后仍可以在列表或详情里立即同步。</p>
+</fieldset>
+<div class="form-actions">
+<button class="btn btn-primary" type="submit">保存</button>
+<a class="btn" href="/tasks">返回列表</a>
+</div>
 </form>
-</body>
-</html>
+{{template "foot" .}}
 {{end}}

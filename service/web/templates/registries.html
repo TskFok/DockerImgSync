@@ -1,15 +1,17 @@
 {{define "registries"}}
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<title>目标仓库</title>
-</head>
-<body>
-{{template "nav" .}}
+{{template "head" .}}
+<header class="page-head">
+<div>
+<p class="kicker">第 2 步 · 目标</p>
 <h1>目标仓库</h1>
-{{if .Error}}<p>{{.Error}}</p>{{end}}
-<p><a href="/registries/new">新建</a></p>
+<p class="lead">填写已经在云上建好的仓库。本程序只负责推送镜像，不会创建仓库。</p>
+</div>
+<a class="btn btn-primary" href="/registries/new">新建目标仓库</a>
+</header>
+{{if .Error}}<p class="alert alert-error" role="alert">{{.Error}}</p>{{end}}
+<section class="panel">
+{{if .Registries}}
+<div class="table-wrap">
 <table>
 <thead>
 <tr><th>名称</th><th>地址</th><th>命名空间</th><th>登录信息</th><th>操作</th></tr>
@@ -17,21 +19,31 @@
 <tbody>
 {{range .Registries}}
 <tr>
-<td>{{.Name}}</td>
-<td>{{.Address}}</td>
-<td>{{.Namespace}}</td>
-<td>{{.CredentialName}}</td>
+<td data-label="名称">{{.Name}}</td>
+<td data-label="地址" class="mono">{{.Address}}</td>
+<td data-label="命名空间" class="mono">{{.Namespace}}</td>
+<td data-label="登录信息">{{.CredentialName}}</td>
 <td>
-<a href="/registries/{{.ID}}/edit">编辑</a>
-<form action="/registries/{{.ID}}/delete" method="post">
+<div class="actions">
+<a class="btn" href="/registries/{{.ID}}/edit">编辑</a>
+<form action="/registries/{{.ID}}/delete" method="post" onsubmit="return confirm('若仍有同步任务使用这个仓库，将无法删除。确定删除？');">
 <input type="hidden" name="csrf" value="{{$.CSRF}}">
-<button type="submit">删除</button>
+<button class="btn btn-danger" type="submit">删除</button>
 </form>
+</div>
 </td>
 </tr>
 {{end}}
 </tbody>
 </table>
-</body>
-</html>
+</div>
+{{else}}
+<div class="empty">
+<strong>还没有目标仓库</strong>
+<p>先确认云上仓库已经建好，再把地址登记到这里。</p>
+<a class="btn btn-primary" href="/registries/new">新建目标仓库</a>
+</div>
+{{end}}
+</section>
+{{template "foot" .}}
 {{end}}

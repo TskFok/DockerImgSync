@@ -197,9 +197,53 @@ func (s *server) issueSession(w http.ResponseWriter, user string) (string, error
 
 func (s *server) render(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if page, ok := data.(pageData); ok {
+		data = withPageMeta(name, page)
+	}
 	if err := s.tmpl.ExecuteTemplate(w, name, data); err != nil {
 		http.Error(w, "模板错误", http.StatusInternalServerError)
 	}
+}
+
+func withPageMeta(name string, page pageData) pageData {
+	switch name {
+	case "login":
+		page.Title = "登录 · 镜像同步"
+	case "credentials":
+		page.Nav = "credentials"
+		page.Title = "登录信息 · 镜像同步"
+	case "credential_form":
+		page.Nav = "credentials"
+		if page.IsEdit {
+			page.Title = "编辑登录信息 · 镜像同步"
+		} else {
+			page.Title = "新建登录信息 · 镜像同步"
+		}
+	case "registries":
+		page.Nav = "registries"
+		page.Title = "目标仓库 · 镜像同步"
+	case "registry_form":
+		page.Nav = "registries"
+		if page.IsEdit {
+			page.Title = "编辑目标仓库 · 镜像同步"
+		} else {
+			page.Title = "新建目标仓库 · 镜像同步"
+		}
+	case "tasks":
+		page.Nav = "tasks"
+		page.Title = "同步任务 · 镜像同步"
+	case "task_form":
+		page.Nav = "tasks"
+		if page.IsEdit {
+			page.Title = "编辑同步任务 · 镜像同步"
+		} else {
+			page.Title = "新建同步任务 · 镜像同步"
+		}
+	case "task_detail":
+		page.Nav = "tasks"
+		page.Title = "同步任务详情 · 镜像同步"
+	}
+	return page
 }
 
 func sessionFromCtx(ctx context.Context) sessionInfo {
@@ -218,6 +262,7 @@ type pageData struct {
 	CSRF        string
 	Error       string
 	Title       string
+	Nav         string
 	Action      string
 	IsEdit      bool
 	Credentials []Credential
